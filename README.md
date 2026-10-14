@@ -4,21 +4,17 @@ Portable ESP32 / ESP8266 IDE — no install needed.
 
 Double-click `Robosiddhi esp ide.exe` to run.
 
-## ⬇️ EXE Download Link (latest: v1.1.0 Pro)
+## ⬇️ EXE Download Link (v1.0.0)
 
 > Note: ye repo **private** hai, isliye download link sirf wahi log use kar sakte hain jinke paas repo access hai (logged-in GitHub account + collaborator access chahiye).
 
-**Direct download (latest Pro theme):**
-
-https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/download/v1.1.0/Robosiddhi-ESP-IDE-v1.1.0.exe
-
-Releases page:
-
-https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/tag/v1.1.0
-
-Old version (v1.0.0):
+**Direct download (GitHub Release):**
 
 https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/download/v1.0.0/Robosiddhi-ESP-IDE-v1.0.0.exe
+
+Agar upar wali link se file name mismatch ho to Releases page se download karo:
+
+https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/tag/v1.0.0
 
 ## First time only (needs internet once)
 
