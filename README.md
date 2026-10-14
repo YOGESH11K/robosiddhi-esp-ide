@@ -10,7 +10,7 @@ Double-click `Robosiddhi esp ide.exe` to run.
 
 **Direct download (GitHub Release):**
 
-https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/download/v1.0.0/Robosiddhi.esp.ide.exe
+https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/download/v1.0.0/Robosiddhi-ESP-IDE-v1.0.0.exe
 
 Agar upar wali link se file name mismatch ho to Releases page se download karo:
 
