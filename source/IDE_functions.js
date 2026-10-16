@@ -234,4 +234,84 @@ window.addEventListener('load', function load() {
     document.getElementById('htmlButton').addEventListener('click', function () {
         window.RoboSiddhi.openTool('html', document.getElementById('languageMenu').value);
     });
+    // ---- RoboSiddhi Runtime: flash once, then send programs without reflashing ----
+    function RoboSiddhiRuntimePort() {
+        var p = document.getElementById('serialMenu').value;
+        if (!p || p === 'none') { RoboSiddhiShow(MSG['IDE_select_port'], '#FF0000'); return null; }
+        return p;
+    }
+    document.getElementById('runtimeFlashButton').addEventListener('click', function () {
+        if (!RoboSiddhiCheckBoard()) return;
+        var port = RoboSiddhiRuntimePort();
+        if (!port) return;
+        var fqbn = profile.default['upload_arg'];
+        RoboSiddhiShow('Runtime firmware flash ho raha hai: ' + RoboSiddhiEsc(profile.default['description']) + ' → ' + RoboSiddhiEsc(port) + '<br>Pehli baar compile me 1-2 min lag sakta hai. <b>RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
+        var t0 = Date.now();
+        window.RoboSiddhi.compile({ fqbn: fqbn, sketch: 'runtime', verbose: RoboSiddhiVerbose() }).then(function (c) {
+            if (!c.ok) { RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(c.stderr, fqbn)), '#FF0000'); throw 'stop'; }
+            return window.RoboSiddhi.upload({ fqbn: fqbn, port: port, sketch: 'runtime', verbose: RoboSiddhiVerbose() });
+        }).then(function (res) {
+            var secs = ((Date.now() - t0) / 1000).toFixed(1);
+            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br><b>Runtime flashed in ' + secs + 's.</b> Ab Send button se program bhejo — reflash nahi hoga.<br>ABB RST DABAO (ek baar).', '#00FF00');
+            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)), '#FF0000');
+        }).catch(function (err) {
+            if (err !== 'stop') RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
+        });
+    });
+    function RoboSiddhiRuntimeCompile() {
+        if (typeof RoboSiddhiRuntime === 'undefined' || !RoboSiddhiRuntime) {
+            RoboSiddhiShow('Runtime module load nahi hua — app restart karo.', '#FF0000');
+            return null;
+        }
+        var setupChain = null, loopChain = null, plain = [];
+        try {
+            var tops = Code.workspace.getTopBlocks(true);
+            for (var i = 0; i < tops.length; i++) {
+                if (tops[i].type === 'base_setup_loop') {
+                    setupChain = tops[i].getInputTargetBlock('SETUP');
+                    loopChain = tops[i].getInputTargetBlock('LOOP');
+                } else plain.push(tops[i]);
+            }
+        } catch (e) {
+            RoboSiddhiShow('Workspace read fail: ' + RoboSiddhiEsc(e.message), '#FF0000');
+            return null;
+        }
+        var chains;
+        if (loopChain) {
+            var loopWrap = { type: '__LOOP__', getFieldValue: function () { return null; }, getInputTargetBlock: function (k) { return k === 'DO' ? loopChain : null; }, getNextBlock: function () { return null; } };
+            chains = (setupChain ? [setupChain] : []).concat([loopWrap]).concat(plain);
+        } else chains = plain;
+        var r = RoboSiddhiRuntime.compileBlocks(chains);
+        if (!r.ok) {
+            RoboSiddhiShow('<b>Runtime mode me nahi chalega:</b><br>' + RoboSiddhiEsc(r.errors.join('<br>')) + '<br><br>Ye blocks Arduino mode (Verify/Upload) se flash karo.', '#FF0000');
+            return null;
+        }
+        return r;
+    }
+    document.getElementById('runtimeSendButton').addEventListener('click', function () {
+        var port = RoboSiddhiRuntimePort();
+        if (!port) return;
+        var prog = RoboSiddhiRuntimeCompile();
+        if (!prog) return;
+        RoboSiddhiShow('Runtime check + program bhej rahe hain (' + prog.ops.length + ' ops)...', '#FFFFFF');
+        var t0 = Date.now();
+        window.RoboSiddhi.runtime({ op: 'detect', port: port }).then(function (d) {
+            RoboSiddhiShow(RoboSiddhiEsc(d.info) + '<br>Program transfer...', '#FFFFFF');
+            return window.RoboSiddhi.runtime({ op: 'program', port: port, ops: prog.ops, pins: prog.pins });
+        }).then(function (res) {
+            var secs = ((Date.now() - t0) / 1000).toFixed(1);
+            RoboSiddhiShow('<b>Program RUNNING on runtime (' + res.ops + ' ops, transfer ' + secs + 's).</b><br>' + RoboSiddhiEsc((res.log || []).join(' | ')), '#00FF00');
+        }).catch(function (err) {
+            RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err) + '<br><br>Runtime nahi mila? Pehle Flash (bolt) button se firmware flash karo.', '#FF0000');
+        });
+    });
+    document.getElementById('runtimeStopButton').addEventListener('click', function () {
+        var port = RoboSiddhiRuntimePort();
+        if (!port) return;
+        window.RoboSiddhi.runtime({ op: 'stop', port: port }).then(function (res) {
+            RoboSiddhiShow('Runtime program STOPPED.<br>' + RoboSiddhiEsc(res.out || ''), '#00FF00');
+        }).catch(function (err) {
+            RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
+        });
+    });
 });

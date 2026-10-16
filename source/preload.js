@@ -12,8 +12,10 @@ contextBridge.exposeInMainWorld('RoboSiddhi', {
   writeSketch: (code) => ipcRenderer.invoke('rs-write-sketch', code),
   compile: (args) => ipcRenderer.invoke('rs-compile', args),
   upload: (args) => ipcRenderer.invoke('rs-upload', args),
-  // Arduino-CLI maintenance: op in {update-index, board-list, core-install, lib-search, lib-install, clean-cache}
+  // Arduino-CLI maintenance: op in {update-index, board-list, core-install, lib-search, lib-install, clean-cache, clean-build, cache-status}
   cli: (op, arg) => ipcRenderer.invoke('rs-cli', { op, arg }),
+  // RoboSiddhi runtime firmware: {op:detect|cmd|program|stop, port, ...}
+  runtime: (req) => ipcRenderer.invoke('rs-runtime', req),
   // Open tool windows: serial | hackcable | factory | html
   openTool: (tool, lang) => ipcRenderer.send('rs-open-tool', { tool, lang }),
   // Serial monitor (streaming via events)

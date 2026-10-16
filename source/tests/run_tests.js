@@ -10,8 +10,17 @@ const Boards = require('../www/blocklyduino/js/esp_board_profiles.js');
 const Manager = require('../www/blocklyduino/js/robosiddhi_board_manager.js');
 
 let pass = 0, fail = 0;
+const pendingAsync = [];
 function test(name, fn) {
-  try { fn(); pass++; console.log('PASS ' + name); }
+  try {
+    const r = fn();
+    if (r && typeof r.then === 'function') {
+      pendingAsync.push(r.then(
+        () => { pass++; console.log('PASS ' + name); },
+        (e) => { fail++; console.error('FAIL ' + name + ' :: ' + (e && e.message)); }
+      ));
+    } else { pass++; console.log('PASS ' + name); }
+  }
   catch (e) { fail++; console.error('FAIL ' + name + ' :: ' + e.message); }
 }
 
@@ -219,7 +228,7 @@ test('upload compiles fresh unless code unchanged (fast re-upload, no stale flas
   const ui = h[1].indexOf("'upload'");
   assert.ok(ci !== -1 && ui !== -1 && ci < ui, 'rs-upload compiles before uploading');
   assert.ok(/COMPILE FAILED/.test(h[1]), 'compile failure aborts upload');
-  assert.ok(/sketchHash|sketch\.hash/.test(h[1]), 'hash guard: changed code forces recompile');
+  assert.ok(/sketchHash|codeHashFor|sketch\.hash/.test(h[1]), 'hash guard: changed code forces recompile');
   assert.ok(/--build-path/.test(main) && /--input-dir/.test(main), 'persistent build cache for fast upload');
   assert.ok(/SKIPPED recompile/.test(h[1]), 'unchanged code skips recompile');
 });
@@ -446,6 +455,183 @@ test('backend enforces cache file, mutex, monitor-close, timings', () => {
   const up = main.match(/handle\('rs-upload'([\s\S]*?)\r?\n\}\);\r?\n/);
   assert.ok(up && up[1].indexOf('closeMonitorPort()') < up[1].indexOf("'upload'"), 'monitor closed before flashing');
 });
+test('runtime IPC channel exists with validation', () => {
+  const fs = require('fs');
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  ['rs-runtime', 'PROG_COMMIT', 'rtBusy', 'RoboSiddhiRuntime', "'runtime'", 'PROG_STOP'].forEach(s => {
+    assert.ok(main.includes(s), 'main.js has ' + s);
+  });
+  const pre = fs.readFileSync(path.join(__dirname, '../preload.js'), 'utf8');
+  assert.ok(pre.includes('rs-runtime'), 'preload exposes runtime channel');
+  const html = fs.readFileSync(path.join(__dirname, '../www/index.html'), 'utf8');
+  ['runtimeFlashButton', 'runtimeSendButton', 'runtimeStopButton', 'robosiddhi_runtime.js'].forEach(s => {
+    assert.ok(html.includes(s), 'index.html has ' + s);
+  });
+  const ide = fs.readFileSync(path.join(__dirname, '../IDE_functions.js'), 'utf8');
+  assert.ok(ide.includes('__LOOP__') && ide.includes("sketch: 'runtime'"), 'IDE wires runtime flash/send');
+});
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+// 15. Runtime protocol: framing, compiler, emulated-firmware round trip
+test('runtime CRC + framing match firmware algorithm', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  assert.strictEqual(R.crc16('123456789'), 0x29B1, 'CRC16-CCITT vector');
+  const f = R.buildFrame(7, 'DWRITE', ['2', '1']);
+  assert.ok(/^RS 7 DWRITE 2 1 \*[0-9A-F]{4}\n$/.test(f), 'frame shape: ' + f);
+  const r = R.parseReply('OK 7 *' + (function () {
+    var c = R.crc16('7'); return ('000' + c.toString(16).toUpperCase()).slice(-4);
+  })());
+  assert.strictEqual(r.ok, true); assert.strictEqual(r.seq, 7);
+  assert.strictEqual(R.parseReply('OK 7 *0000').ok, false, 'bad CRC rejected');
+  assert.strictEqual(R.parseReply('HELLO 7').ok, false, 'bad frame rejected');
+});
+// Independent CRC16 for the emulator (cross-checks both directions).
+function emuCrc16(s) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < s.length; i++) {
+    crc ^= (s.charCodeAt(i) & 0xFF) << 8;
+    for (let b = 0; b < 8; b++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc & 0xFFFF;
+}
+function emuCrc32Bytes(bytes) {
+  let crc = 0xFFFFFFFF;
+  bytes.forEach(by => { crc ^= by; for (let k = 0; k < 8; k++) crc = (crc & 1) ? (crc >>> 1) ^ 0xEDB88320 : crc >>> 1; });
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function emuFrame(status, seq, payload) {
+  const body = String(seq) + (payload ? ' ' + payload : '');
+  return status + ' ' + body + ' *' + ('000' + emuCrc16(body).toString(16).toUpperCase()).slice(-4) + '\n';
+}
+// Minimal firmware emulator: HELLO/PINMODE/PROG_* with real CRC checks.
+function makeEmulator() {
+  let staged = [];
+  const emu = {
+    log: [],
+    write(line) {
+      const m = /^RS (\d+) ([A-Z_]+) ?(.*?) ?\*([0-9A-Fa-f]{4})\r?\n$/.exec(line);
+      const send = (s) => setImmediate(() => emu._cb(s));
+      if (!m) return; // silent drop like firmware
+      const seq = +m[1], cmd = m[2];
+      const body = m[1] + ' ' + m[2] + (m[3] ? ' ' + m[3] : '');
+      if (emuCrc16(body) !== parseInt(m[4], 16)) return; // corrupt: silent
+      const args = m[3] ? m[3].split(' ') : [];
+      emu.log.push(cmd);
+      if (cmd === 'HELLO') return send(emuFrame('OK', seq, 'RS-RUNTIME 1.0.0 PROTO 1'));
+      if (cmd === 'PINMODE') return send(emuFrame('OK', seq, ''));
+      if (cmd === 'PROG_CLEAR') { staged = []; return send(emuFrame('OK', seq, '')); }
+      if (cmd === 'PROG_ADD') {
+        const idx = +args[0];
+        args[1].split(';').forEach((t, k) => {
+          const [op, a, b, c] = t.split(',').map(Number);
+          staged[idx + k] = { op, a, b, c };
+        });
+        return send(emuFrame('OK', seq, 'LEN ' + staged.length));
+      }
+      if (cmd === 'PROG_COMMIT') {
+        const bytes = [];
+        staged.forEach(o => bytes.push(o.op & 255, o.a & 255, (o.a >> 8) & 255, o.b & 255, (o.b >> 8) & 255, o.c & 255, (o.c >> 8) & 255));
+        const want = ('0000000' + emuCrc32Bytes(bytes).toString(16).toUpperCase()).slice(-8);
+        if (want !== args[0].toUpperCase()) return send(emuFrame('ERR', seq, 'CRC_FAIL'));
+        const last = staged[staged.length - 1];
+        const forever = last && last.op === 8 && last.a >= 0 && last.a < staged.length - 1;
+        if (!staged.length || (last.op !== 10 && !forever)) return send(emuFrame('ERR', seq, 'NO_END'));
+        return send(emuFrame('OK', seq, 'LEN ' + staged.length));
+      }
+      if (cmd === 'PROG_RUN') return send(emuFrame('OK', seq, 'RUNNING'));
+      if (cmd === 'PROG_STOP') return send(emuFrame('OK', seq, 'STOPPED'));
+      return send(emuFrame('ERR', seq, 'UNKNOWN_CMD'));
+    },
+    _cb: null,
+    onLine(cb) { emu._cb = cb; }
+  };
+  return emu;
+}
+test('runtime detect + program transfer against emulator', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  const rt = new R.Runtime(makeEmulator(), { timeoutMs: 2000 });
+  return rt.detect().then(hello => {
+    assert.ok(hello.includes('RS-RUNTIME'), 'handshake: ' + hello);
+    const ops = [{ op: 1, a: 2, b: 1, c: 0 }, { op: 5, a: 500, b: 0, c: 0 }, { op: 10, a: 0, b: 0, c: 0 }];
+    return rt.transferProgram(ops, [2]);
+  }).then(run => {
+    assert.strictEqual(run, 'RUNNING');
+    return rt.stop();
+  }).then(st => assert.strictEqual(st, 'STOPPED'));
+});
+test('runtime rejects tampered program commit', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  const emu = makeEmulator();
+  const origWrite = emu.write.bind(emu);
+  emu.write = (line) => {
+    if (/PROG_COMMIT/.test(line)) {
+      // tamper the commit CRC but re-sign the frame so framing stays valid
+      const m = /^RS (\d+) PROG_COMMIT [0-9A-F]+ \*([0-9A-Fa-f]{4})\r?\n$/.exec(line);
+      if (m) {
+        const nb = m[1] + ' PROG_COMMIT DEADBEEF';
+        return origWrite('RS ' + nb + ' *' + ('000' + emuCrc16(nb).toString(16).toUpperCase()).slice(-4) + '\n');
+      }
+    }
+    return origWrite(line);
+  };
+  const rt = new R.Runtime(emu, { timeoutMs: 2000 });
+  const ops = [{ op: 1, a: 2, b: 1, c: 0 }, { op: 10, a: 0, b: 0, c: 0 }];
+  let failed = false;
+  return rt.transferProgram(ops, [2]).then(
+    () => { throw new Error('tampered commit was accepted'); },
+    (e) => { failed = /CRC_FAIL/.test(e.message); }
+  ).then(() => assert.strictEqual(failed, true, 'tampered commit must fail'));
+});
+test('block compiler emits correct ops and jumps', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  // LED on, wait, LED off
+  const prog = R.compileBlocks([
+    R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' }, {}, null)
+  ]);
+  // chain manually: B() has no next-link param use — link via _n
+  const b1 = R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' });
+  const b2 = R.B('board_base_delay', {}, { DELAY_TIME: R.B('math_number', { NUM: '500' }) });
+  const b3 = R.B('robosiddhi_led_set', { PIN: '2', STATE: 'OFF' });
+  b1._n = b2; b2._n = b3;
+  const r = R.compileBlocks([b1]);
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+  assert.deepStrictEqual(r.ops.map(o => o.op), [1, 5, 1, 10]);
+  assert.deepStrictEqual([r.ops[0].a, r.ops[0].b, r.ops[1].a], [2, 1, 500]);
+  assert.deepStrictEqual(r.pins, [2]);
+  // repeat 3 { led on } -> DWRITE, LOOP(3 -> 0), END
+  const rb = R.B('controls_repeat_ext', {}, { TIMES: R.B('math_number', { NUM: '3' }), DO: R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' }) });
+  const rr = R.compileBlocks([rb]);
+  assert.strictEqual(rr.ok, true, JSON.stringify(rr.errors));
+  assert.deepStrictEqual(rr.ops.map(o => o.op), [1, 9, 10]);
+  assert.strictEqual(rr.ops[1].a, 3); assert.strictEqual(rr.ops[1].b, 0);
+  // if digitalRead(4)==1 { led on } -> IFD(4,0->END), DWRITE, END
+  const cond = R.B('logic_compare', { OP: 'EQ' }, {
+    A: R.B('board_base_inout_digital_read', { PIN: '4' }),
+    B: R.B('math_number', { NUM: '1' })
+  });
+  const ib = R.B('controls_if', {}, { IF0: cond, DO0: R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' }) });
+  const ir = R.compileBlocks([ib]);
+  assert.strictEqual(ir.ok, true, JSON.stringify(ir.errors));
+  assert.deepStrictEqual(ir.ops.map(o => o.op), [6, 1, 10]);
+  assert.deepStrictEqual([ir.ops[0].a, ir.ops[0].b, ir.ops[0].c], [4, 0, 2]);
+  // unsupported + bad inputs rejected with clear errors
+  assert.strictEqual(R.compileBlocks([R.B('robosiddhi_wifi_connect', {})]).ok, false);
+  assert.strictEqual(R.compileBlocks([]).ok, false);
+  const badRep = R.B('controls_repeat_ext', {}, { TIMES: R.B('math_number', { NUM: '0' }) });
+  assert.strictEqual(R.compileBlocks([badRep]).ok, false);
+});
+
+test('loop-forever programs end with backward JMP', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  const ON = R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' });
+  const loopWrap = R.B('__LOOP__', {}, { DO: ON });
+  const r = R.compileBlocks([loopWrap]);
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+  const last = r.ops[r.ops.length - 1];
+  assert.strictEqual(last.op, R.OP.JMP);
+  assert.strictEqual(last.a, 0);
+});
+
+Promise.all(pendingAsync).then(() => {
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+});

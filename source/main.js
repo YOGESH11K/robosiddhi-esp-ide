@@ -28,6 +28,8 @@ const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 let RoboSiddhiBuild = null;
 try { RoboSiddhiBuild = require('./www/blocklyduino/js/robosiddhi_build.js'); } catch (e) { RoboSiddhiBuild = null; }
+let RSRuntime = null;
+try { RSRuntime = require('./www/blocklyduino/js/robosiddhi_runtime.js'); } catch (e) { RSRuntime = null; }
 
 // ---- RoboSiddhi secure backend (all renderer Node/exec/serial goes through here) ----
 // Writable + executable locations differ between dev and packaged app:
@@ -42,13 +44,15 @@ function cliExePath() {
     // so it runs directly. (extraFiles are excluded from the asar, hence no asarUnpack.)
     return path.join(path.dirname(app.getPath('exe')), 'compiler', 'arduino-cli.exe');
 }
-function sketchDirPath() {
+function sketchDirPath(sketch) {
+    if (sketch === 'runtime') return path.join(__dirname, 'runtime', 'RoboSiddhiRuntime');
     if (DEV_MODE) return path.join(__dirname, 'compiler', 'tmp');
     return path.join(app.getPath('userData'), 'sketch');
 }
-function sketchFilePath() {
+function sketchFilePath(sketch) {
     // Arduino REQUIRES <sketchdir>/<sketchdir>.ino name match, else
     // "Can't open sketch: main file missing" (misdiagnosed as missing core before).
+    if (sketch === 'runtime') return path.join(sketchDirPath('runtime'), 'RoboSiddhiRuntime.ino');
     if (DEV_MODE) return path.join(sketchDirPath(), 'tmp.ino'); // dir tmp/
     return path.join(sketchDirPath(), 'sketch.ino'); // dir sketch/
 }
@@ -58,29 +62,29 @@ function repoTmpPath() {
 }
 // Persistent per-board build dir: arduino-cli reuses object files here,
 // so repeat compile drops 40s -> ~11s. OS temp would rebuild from scratch.
-function buildDirPath(fqbn) {
-    const safe = String(fqbn || 'unknown').replace(/[^A-Za-z0-9]+/g, '_');
+function buildDirPath(fqbn, sketch) {
+    const safe = String(fqbn || 'unknown').replace(/[^A-Za-z0-9]+/g, '_') + (sketch === 'runtime' ? '_rt' : '');
     if (DEV_MODE) return path.join(__dirname, 'compiler', 'build', safe);
     return path.join(app.getPath('userData'), 'build', safe);
 }
-function sketchHash() {
+function sketchHash(file) {
     try {
         const crypto = require('crypto');
-        const code = fs.readFileSync(sketchFilePath());
+        const code = fs.readFileSync(file || sketchFilePath());
         return crypto.createHash('sha256').update(code).digest('hex').slice(0, 16);
     } catch (e) { return null; }
 }
-function hashFilePath(fqbn) { return path.join(buildDirPath(fqbn), 'sketch.hash'); }
+function hashFilePath(fqbn, sketch) { return path.join(buildDirPath(fqbn, sketch), 'sketch.hash'); }
 // ---- Persistent firmware cache (CACHE_SCHEMA 2, see robosiddhi_build.js) ----
 // cache.json lives next to the binaries in the per-board build dir and records
 // every input that affects the firmware: code hash, board, core + CLI versions,
 // build flags. A cached binary is flashed ONLY if all of them still match.
-function cacheMetaPath(fqbn) { return path.join(buildDirPath(fqbn), 'cache.json'); }
-function readCacheMeta(fqbn) {
-    try { return JSON.parse(fs.readFileSync(cacheMetaPath(fqbn), 'utf8')); } catch (e) { return null; }
+function cacheMetaPath(fqbn, sketch) { return path.join(buildDirPath(fqbn, sketch), 'cache.json'); }
+function readCacheMeta(fqbn, sketch) {
+    try { return JSON.parse(fs.readFileSync(cacheMetaPath(fqbn, sketch), 'utf8')); } catch (e) { return null; }
 }
-function writeCacheMeta(fqbn, meta) {
-    try { fs.ensureDirSync(buildDirPath(fqbn)); fs.writeFileSync(cacheMetaPath(fqbn), JSON.stringify(meta, null, 1)); } catch (e) {}
+function writeCacheMeta(fqbn, sketch, meta) {
+    try { fs.ensureDirSync(buildDirPath(fqbn, sketch)); fs.writeFileSync(cacheMetaPath(fqbn, sketch), JSON.stringify(meta, null, 1)); } catch (e) {}
 }
 function sha256File(file) {
     try {
@@ -90,12 +94,27 @@ function sha256File(file) {
 }
 // Main application binary in a --build-path dir: the "<sketch>.ino.bin"
 // (not merged/bootloader/partitions helpers). Used for the integrity hash.
-function findSketchBin(fqbn) {
+function findSketchBin(fqbn, sketch, inoBase) {
     try {
-        const files = fs.readdirSync(buildDirPath(fqbn)).filter((f) => f.endsWith('.ino.bin'));
+        const dir = buildDirPath(fqbn, sketch);
+        const files = fs.readdirSync(dir).filter((f) => f.endsWith('.ino.bin'));
         const app = files.filter((f) => !/merged|bootloader|partitions/i.test(f));
-        const pick = app[0] || files[0];
-        return pick ? path.join(buildDirPath(fqbn), pick) : null;
+        // Prefer the binary matching this sketch (user tmp/sketch vs runtime).
+        const named = (app.length ? app : files).filter((f) => !inoBase || f.indexOf(inoBase) === 0);
+        const pick = named[0] || app[0] || files[0];
+        return pick ? path.join(dir, pick) : null;
+    } catch (e) { return null; }
+}
+// 'runtime' sketch = 3 source files: hash them all for the cache key.
+function codeHashFor(sketch) {
+    if (sketch !== 'runtime') return sketchHash();
+    try {
+        const crypto = require('crypto');
+        const h = crypto.createHash('sha256');
+        ['RoboSiddhiRuntime.ino', 'RSProtocol.h', 'RSProgram.h'].forEach((f) => {
+            h.update(fs.readFileSync(path.join(sketchDirPath('runtime'), f)));
+        });
+        return h.digest('hex').slice(0, 16);
     } catch (e) { return null; }
 }
 let _cliVersion = null;
@@ -402,24 +421,26 @@ ipcMain.handle('rs-write-sketch', async (_e, code) => {
 ipcMain.handle('rs-compile', async (_e, args) => {
     args = args || {};
     if (!validFqbn(args.fqbn)) throw new Error('Select an ESP board first.');
-    fs.ensureDirSync(buildDirPath(args.fqbn));
-    if (args.force) { try { fs.emptyDirSync(buildDirPath(args.fqbn)); } catch (e) {} }
+    const sk = (args.sketch === 'runtime') ? 'runtime' : undefined;
+    const inoBase = (sk === 'runtime') ? 'RoboSiddhiRuntime' : (DEV_MODE ? 'tmp' : 'sketch');
+    fs.ensureDirSync(buildDirPath(args.fqbn, sk));
+    if (args.force) { try { fs.emptyDirSync(buildDirPath(args.fqbn, sk)); } catch (e) {} }
     const t0 = Date.now();
     const cmd = ['compile', '-j', '0'];
     if (args.verbose) cmd.push('-v');
-    cmd.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn), sketchDirPath());
+    cmd.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn, sk), sketchDirPath(sk));
     const r = await runCli(cmd);
     const compileMs = Date.now() - t0;
     if (r.ok) {
         // Record a validated cache entry: binary exists + integrity hash stored.
         // A failed build NEVER writes cache.json (stale-success impossible).
-        const codeHash = sketchHash();
-        const bin = findSketchBin(args.fqbn);
+        const codeHash = codeHashFor(sk);
+        const bin = findSketchBin(args.fqbn, sk, inoBase);
         const binSha = bin ? sha256File(bin) : null;
-        try { fs.writeFileSync(hashFilePath(args.fqbn), codeHash || ''); } catch (e) {}
+        try { fs.writeFileSync(hashFilePath(args.fqbn, sk), codeHash || ''); } catch (e) {}
         if (codeHash && bin && binSha) {
             const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
-            writeCacheMeta(args.fqbn, {
+            writeCacheMeta(args.fqbn, sk, {
                 schema: 2, fqbn: args.fqbn, codeHash: codeHash,
                 coreVersion: coreV, cliVersion: cliV, flags: '',
                 binName: path.basename(bin), binSha256: binSha,
@@ -442,9 +463,11 @@ ipcMain.handle('rs-upload', async (_e, args) => {
         if (!BAUDS.includes(speed)) throw new Error('Unsupported upload speed.');
     }
     const flags = 'baud:' + (speed || 'default');
+    const sk = (args.sketch === 'runtime') ? 'runtime' : undefined;
+    const inoBase = (sk === 'runtime') ? 'RoboSiddhiRuntime' : (DEV_MODE ? 'tmp' : 'sketch');
     uploadBusy.add(args.port);
     try {
-        fs.ensureDirSync(buildDirPath(args.fqbn));
+        fs.ensureDirSync(buildDirPath(args.fqbn, sk));
         // The Serial Monitor owns this COM port — flashing while it is open
         // always fails with "port busy", so close it first and say so.
         const monWasOpen = !!(monPort && monPort.isOpen);
@@ -454,13 +477,13 @@ ipcMain.handle('rs-upload', async (_e, args) => {
         // FAST PATH: reuse the cached binary ONLY if every build input matches
         // (code + board + core + toolchain + flags) and the binary verifies.
         // Anything else → full compile. Forced rebuild skips the lookup.
-        const curHash = sketchHash();
+        const curHash = codeHashFor(sk);
         let c = null, cacheState = 'miss-no-entry', compileMs = 0;
         if (!args.force && curHash && RoboSiddhiBuild) {
             const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
-            const bin = findSketchBin(args.fqbn);
+            const bin = findSketchBin(args.fqbn, sk, inoBase);
             const verdict = RoboSiddhiBuild.validateCacheEntry(
-                readCacheMeta(args.fqbn),
+                readCacheMeta(args.fqbn, sk),
                 { fqbn: args.fqbn, codeHash: curHash, coreVersion: coreV, cliVersion: cliV, flags: flags },
                 bin ? sha256File(bin) : null);
             cacheState = verdict.ok ? 'hit' : 'miss-' + verdict.reason;
@@ -472,7 +495,7 @@ ipcMain.handle('rs-upload', async (_e, args) => {
             const t0 = Date.now();
             const cargs = ['compile', '-j', '0'];
             if (args.verbose) cargs.push('-v');
-            cargs.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn), sketchDirPath());
+            cargs.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn, sk), sketchDirPath(sk));
             c = await runCli(cargs);
             compileMs = Date.now() - t0;
             if (!c.ok) {
@@ -480,13 +503,13 @@ ipcMain.handle('rs-upload', async (_e, args) => {
                 c.stderr = 'COMPILE FAILED - nothing was uploaded. Fix the error above.\n' + c.stderr;
                 return c;
             }
-            const codeHash = sketchHash();
-            const bin = findSketchBin(args.fqbn);
+            const codeHash = codeHashFor(sk);
+            const bin = findSketchBin(args.fqbn, sk, inoBase);
             const binSha = bin ? sha256File(bin) : null;
-            try { fs.writeFileSync(hashFilePath(args.fqbn), codeHash || ''); } catch (e) {}
+            try { fs.writeFileSync(hashFilePath(args.fqbn, sk), codeHash || ''); } catch (e) {}
             if (codeHash && bin && binSha) {
                 const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
-                writeCacheMeta(args.fqbn, {
+                writeCacheMeta(args.fqbn, sk, {
                     schema: 2, fqbn: args.fqbn, codeHash: codeHash,
                     coreVersion: coreV, cliVersion: cliV, flags: flags,
                     binName: path.basename(bin), binSha256: binSha,
@@ -500,7 +523,7 @@ ipcMain.handle('rs-upload', async (_e, args) => {
         if (args.verbose) uargs.push('-v');
         uargs.push('-b', args.fqbn);
         if (speed) uargs.push('--upload-property', 'upload.speed=' + speed);
-        uargs.push('--input-dir', buildDirPath(args.fqbn), sketchDirPath());
+        uargs.push('--input-dir', buildDirPath(args.fqbn, sk), sketchDirPath(sk));
         const u = await runCli(uargs);
         const uploadMs = Date.now() - t1;
         return {
@@ -510,6 +533,110 @@ ipcMain.handle('rs-upload', async (_e, args) => {
         };
     } finally {
         uploadBusy.delete(args.port);
+    }
+});
+
+// ---- RoboSiddhi Runtime channel: talk to flashed runtime firmware ----
+// One runtime session per port at a time; never fights an upload or monitor.
+const rtBusy = new Set();
+function rtWithPort(port, fn) {
+    return new Promise((resolve, reject) => {
+        let buf = '';
+        const pending = {};
+        let seq = 0;
+        const sp = new SerialPort({ path: port, baudRate: 115200, autoOpen: false });
+        const done = (err, val) => { try { sp.close(() => {}); } catch (e) {} rtBusy.delete(port); err ? reject(err) : resolve(val); };
+        const timerFail = setTimeout(() => done(new Error('runtime timeout on ' + port + ' (firmware flashed? baud 115200?)')), 30000);
+        sp.on('data', (chunk) => {
+            buf += chunk.toString('latin1');
+            let idx;
+            while ((idx = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, idx + 1);
+                buf = buf.slice(idx + 1);
+                if (!RSRuntime) continue;
+                const r = RSRuntime.parseReply(line);
+                if (!r.ok || r.seq === undefined) continue; // banner/garbage ignored
+                const p = pending[r.seq];
+                if (!p) continue;
+                delete pending[r.seq];
+                clearTimeout(p.timer);
+                if (r.status === 'OK') p.resolve(r.payload);
+                else p.reject(new Error('runtime: ' + r.payload));
+            }
+        });
+        sp.on('error', (e) => done(new Error('serial error: ' + (e && e.message))));
+        sp.open((err) => {
+            if (err) { clearTimeout(timerFail); rtBusy.delete(port); reject(new Error('cannot open ' + port + ': ' + err.message)); return; }
+            const send = (cmd, args, ms) => new Promise((res, rej) => {
+                seq = (seq + 1) & 0xFF;
+                pending[seq] = {
+                    resolve: res, reject: rej,
+                    timer: setTimeout(() => { delete pending[seq]; rej(new Error('runtime timeout: ' + cmd)); }, ms || 5000)
+                };
+                try { sp.write(RSRuntime.buildFrame(seq, cmd, args || [])); }
+                catch (e) { delete pending[seq]; rej(e); }
+            });
+            // Drain the firmware boot banner, then run the session.
+            setTimeout(() => {
+                Promise.resolve()
+                    .then(() => fn(send))
+                    .then((v) => { clearTimeout(timerFail); done(null, v); })
+                    .catch((e) => { clearTimeout(timerFail); done(e); });
+            }, 600);
+        });
+    });
+}
+
+ipcMain.handle('rs-runtime', async (_e, req) => {
+    req = req || {};
+    if (!RSRuntime) throw new Error('Runtime protocol module missing.');
+    const op = req.op;
+    if (['detect', 'cmd', 'program', 'stop'].indexOf(op) === -1) throw new Error('Unknown runtime op.');
+    if (typeof req.port !== 'string' || !PORT_RE.test(req.port)) throw new Error('Select a valid serial port first.');
+    if (uploadBusy.has(req.port) || rtBusy.has(req.port)) throw new Error(req.port + ' is busy — wait for the current operation.');
+    const monWasOpen = !!(monPort && monPort.isOpen);
+    closeMonitorPort();
+    rtBusy.add(req.port);
+    const t0 = Date.now();
+    try {
+        if (op === 'detect') {
+            const info = await rtWithPort(req.port, (send) => send('HELLO', []));
+            if (info.indexOf('RS-RUNTIME') !== 0) throw new Error('No RoboSiddhi runtime on ' + req.port + ' (flash it first). Got: ' + info);
+            return { ok: true, info: info, ms: Date.now() - t0, monitorClosed: monWasOpen };
+        }
+        if (op === 'cmd') {
+            if (!/^[A-Z_]+$/.test(req.cmd || '')) throw new Error('Bad runtime command.');
+            const args = Array.isArray(req.args) ? req.args.filter((a) => /^[A-Za-z0-9_.+\-@]+$/.test(a)) : [];
+            const out = await rtWithPort(req.port, (send) => send(req.cmd, args));
+            return { ok: true, out: out, ms: Date.now() - t0, monitorClosed: monWasOpen };
+        }
+        if (op === 'stop') {
+            const out = await rtWithPort(req.port, (send) => send('PROG_STOP', []));
+            return { ok: true, out: out, ms: Date.now() - t0, monitorClosed: monWasOpen };
+        }
+        // op === 'program': validated op list + pins from the block compiler.
+        const ops = req.ops, pins = req.pins || [];
+        if (!Array.isArray(ops) || !ops.length || ops.length > 128) throw new Error('Bad program (1..128 ops).');
+        for (const o of ops) {
+            if (!o || typeof o.op !== 'number' || o.op < 1 || o.op > 10) throw new Error('Bad program opcode.');
+            for (const k of ['a', 'b', 'c']) if (typeof o[k] !== 'number' || !isFinite(o[k])) throw new Error('Bad program args.');
+        }
+        const log = await rtWithPort(req.port, async (send) => {
+            const steps = [];
+            steps.push('CLEAR:' + (await send('PROG_CLEAR', [])));
+            for (const p of pins) { steps.push('PINMODE:' + (await send('PINMODE', [String(p), 'OUT']))); }
+            for (let i = 0; i < ops.length; i += 10) {
+                const s = ops.slice(i, i + 10).map((o) => [o.op, o.a, o.b, o.c].join(',')).join(';');
+                steps.push('ADD:' + (await send('PROG_ADD', [String(i), s])));
+            }
+            const crc = RSRuntime.crc32Hex(RSRuntime.programCrc32(ops.map((o) => ({ op: o.op | 0, a: o.a | 0, b: o.b | 0, c: o.c | 0 }))));
+            steps.push('COMMIT:' + (await send('PROG_COMMIT', [crc])));
+            steps.push('RUN:' + (await send('PROG_RUN', [])));
+            return steps;
+        });
+        return { ok: true, ops: ops.length, log: log, ms: Date.now() - t0, monitorClosed: monWasOpen };
+    } finally {
+        rtBusy.delete(req.port);
     }
 });
 
