@@ -539,14 +539,15 @@ ipcMain.handle('rs-upload', async (_e, args) => {
 // ---- RoboSiddhi Runtime channel: talk to flashed runtime firmware ----
 // One runtime session per port at a time; never fights an upload or monitor.
 const rtBusy = new Set();
-function rtWithPort(port, fn) {
+function rtWithPort(port, fn, cmdTimeoutMs) {
     return new Promise((resolve, reject) => {
         let buf = '';
         const pending = {};
         let seq = 0;
+        const perCmd = cmdTimeoutMs || 5000;
         const sp = new SerialPort({ path: port, baudRate: 115200, autoOpen: false });
         const done = (err, val) => { try { sp.close(() => {}); } catch (e) {} rtBusy.delete(port); err ? reject(err) : resolve(val); };
-        const timerFail = setTimeout(() => done(new Error('runtime timeout on ' + port + ' (firmware flashed? baud 115200?)')), 30000);
+        const timerFail = setTimeout(() => done(new Error('runtime timeout on ' + port + ' (firmware flashed? baud 115200?)')), Math.max(10000, perCmd * 6));
         sp.on('data', (chunk) => {
             buf += chunk.toString('latin1');
             let idx;
@@ -571,18 +572,19 @@ function rtWithPort(port, fn) {
                 seq = (seq + 1) & 0xFF;
                 pending[seq] = {
                     resolve: res, reject: rej,
-                    timer: setTimeout(() => { delete pending[seq]; rej(new Error('runtime timeout: ' + cmd)); }, ms || 5000)
+                    timer: setTimeout(() => { delete pending[seq]; rej(new Error('runtime timeout: ' + cmd)); }, ms || perCmd)
                 };
                 try { sp.write(RSRuntime.buildFrame(seq, cmd, args || [])); }
                 catch (e) { delete pending[seq]; rej(e); }
             });
-            // Drain the firmware boot banner, then run the session.
+            // Short drain: the open-port reboot is absorbed by the USB/serial
+            // buffers, so HELLO can go out immediately (~250ms, not 600ms+).
             setTimeout(() => {
                 Promise.resolve()
                     .then(() => fn(send))
                     .then((v) => { clearTimeout(timerFail); done(null, v); })
                     .catch((e) => { clearTimeout(timerFail); done(e); });
-            }, 600);
+            }, 250);
         });
     });
 }
@@ -596,22 +598,27 @@ ipcMain.handle('rs-runtime', async (_e, req) => {
     if (uploadBusy.has(req.port) || rtBusy.has(req.port)) throw new Error(req.port + ' is busy — wait for the current operation.');
     const monWasOpen = !!(monPort && monPort.isOpen);
     closeMonitorPort();
+    let perCmd = 5000;
+    if (req.timeoutMs !== undefined && req.timeoutMs !== null) {
+        perCmd = parseInt(req.timeoutMs, 10);
+        if (!isFinite(perCmd) || perCmd < 300 || perCmd > 10000) throw new Error('Bad runtime timeout.');
+    }
     rtBusy.add(req.port);
     const t0 = Date.now();
     try {
         if (op === 'detect') {
-            const info = await rtWithPort(req.port, (send) => send('HELLO', []));
+            const info = await rtWithPort(req.port, (send) => send('HELLO', []), perCmd);
             if (info.indexOf('RS-RUNTIME') !== 0) throw new Error('No RoboSiddhi runtime on ' + req.port + ' (flash it first). Got: ' + info);
             return { ok: true, info: info, ms: Date.now() - t0, monitorClosed: monWasOpen };
         }
         if (op === 'cmd') {
             if (!/^[A-Z_]+$/.test(req.cmd || '')) throw new Error('Bad runtime command.');
             const args = Array.isArray(req.args) ? req.args.filter((a) => /^[A-Za-z0-9_.+\-@]+$/.test(a)) : [];
-            const out = await rtWithPort(req.port, (send) => send(req.cmd, args));
+            const out = await rtWithPort(req.port, (send) => send(req.cmd, args), perCmd);
             return { ok: true, out: out, ms: Date.now() - t0, monitorClosed: monWasOpen };
         }
         if (op === 'stop') {
-            const out = await rtWithPort(req.port, (send) => send('PROG_STOP', []));
+            const out = await rtWithPort(req.port, (send) => send('PROG_STOP', []), perCmd);
             return { ok: true, out: out, ms: Date.now() - t0, monitorClosed: monWasOpen };
         }
         // op === 'program': validated op list + pins from the block compiler.
@@ -633,7 +640,7 @@ ipcMain.handle('rs-runtime', async (_e, req) => {
             steps.push('COMMIT:' + (await send('PROG_COMMIT', [crc])));
             steps.push('RUN:' + (await send('PROG_RUN', [])));
             return steps;
-        });
+        }, perCmd);
         return { ok: true, ops: ops.length, log: log, ms: Date.now() - t0, monitorClosed: monWasOpen };
     } finally {
         rtBusy.delete(req.port);

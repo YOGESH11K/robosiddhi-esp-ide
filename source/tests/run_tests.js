@@ -631,6 +631,34 @@ test('loop-forever programs end with backward JMP', () => {
   assert.strictEqual(last.a, 0);
 });
 
+test('small-program transfer fits the ~1s wire budget', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  // blink: DWRITE, WAIT, DWRITE, WAIT, JMP = full run-forever program
+  const ops = [
+    { op: 1, a: 2, b: 1, c: 0 }, { op: 5, a: 500, b: 0, c: 0 },
+    { op: 1, a: 2, b: 0, c: 0 }, { op: 5, a: 500, b: 0, c: 0 },
+    { op: 8, a: 0, b: 0, c: 0 }
+  ];
+  let bytes = 0;
+  const frames = [R.buildFrame(1, 'PROG_CLEAR', [])];
+  frames.push(R.buildFrame(2, 'PINMODE', ['2', 'OUT']));
+  const s = ops.map(o => [o.op, o.a, o.b, o.c].join(',')).join(';');
+  frames.push(R.buildFrame(3, 'PROG_ADD', ['0', s]));
+  frames.push(R.buildFrame(4, 'PROG_COMMIT', [R.crc32Hex(R.programCrc32(ops))]));
+  frames.push(R.buildFrame(5, 'PROG_RUN', []));
+  frames.forEach(f => { bytes += f.length; });
+  assert.ok(bytes < 1200, 'wire bytes ' + bytes + ' (<1200 = <0.15s at 115200 baud)');
+});
+test('runtime backend supports fast probe timeouts', () => {
+  const fs = require('fs');
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  assert.ok(main.includes('timeoutMs'), 'rs-runtime accepts timeoutMs');
+  const ide = fs.readFileSync(path.join(__dirname, '../IDE_functions.js'), 'utf8');
+  ['rs-runtime-ok:', 'INSTANT', 'timeoutMs: 1500', 'timeoutMs: 3000'].forEach(x => {
+    assert.ok(ide.includes(x), 'smart upload has ' + x);
+  });
+});
+
 Promise.all(pendingAsync).then(() => {
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

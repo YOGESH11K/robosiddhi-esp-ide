@@ -191,6 +191,36 @@ window.addEventListener('load', function load() {
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
         });
     };
+    // ---- Smart Upload: runtime-instant when the board has it, else Arduino ----
+    function RuntimeMarkKey(port) { return 'rs-runtime-ok:' + port; }
+    function RuntimeMarked(port) {
+        try { return window.localStorage.getItem(RuntimeMarkKey(port)) === '1'; } catch (e) { return false; }
+    }
+    function RuntimeMark(port, ok) {
+        try {
+            if (ok) window.localStorage.setItem(RuntimeMarkKey(port), '1');
+            else window.localStorage.removeItem(RuntimeMarkKey(port));
+        } catch (e) {}
+    }
+    function ArduinoUploadFlow(data, fqbn, comPortSelected) {
+        // Classic compile-and-flash. Overwrites any runtime firmware on the board.
+        return window.RoboSiddhi.writeSketch(data).then(function () {
+            return window.RoboSiddhi.upload({ fqbn: fqbn, port: comPortSelected, verbose: RoboSiddhiVerbose(), force: RoboSiddhiForce(), uploadSpeed: RoboSiddhiSpeed() });
+        }).then(function (res) {
+            if (res.ok) {
+                RuntimeMark(comPortSelected, false);
+                RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_upload_ok'] + '<br><b>ABB RST DABAO (ek baar) YA USB cable nikalo-lagao — tabhi naya program chalega.</b>' + RoboSiddhiPerfLine(res, 'upload'), '#00FF00');
+            } else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)) + RoboSiddhiPerfLine(res, 'upload'), '#FF0000');
+        });
+    }
+    function RuntimeTransferFlow(prog, comPortSelected) {
+        var t0 = Date.now();
+        return window.RoboSiddhi.runtime({ op: 'program', port: comPortSelected, ops: prog.ops, pins: prog.pins, timeoutMs: 3000 }).then(function (res) {
+            var secs = ((Date.now() - t0) / 1000).toFixed(1);
+            RuntimeMark(comPortSelected, true);
+            RoboSiddhiShow('⚡ <b>INSTANT upload — Runtime (' + res.ops + ' ops, transfer ' + secs + 's, no reflash).</b><br>' + RoboSiddhiEsc((res.log || []).join(' | ')), '#00FF00');
+        });
+    }
     document.getElementById('uploadButton').onclick = function () {
         var data = RoboSiddhiWorkspaceCode();
         if (!RoboSiddhiCheckCode(data)) return;
@@ -201,13 +231,38 @@ window.addEventListener('load', function load() {
             return;
         }
         var fqbn = profile.default['upload_arg'];
+        var prog = RoboSiddhiRuntimeCompile();
+        var canRuntime = !!(prog && prog.ok !== false);
+        if (canRuntime && RuntimeMarked(comPortSelected)) {
+            // Steady state: board known to run the runtime — straight to transfer (~1s).
+            RoboSiddhiShow('⚡ Runtime board pe bhej rahe hain (' + prog.ops.length + ' ops)...', '#FFFFFF');
+            RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
+                RuntimeMark(comPortSelected, false);
+                RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err) + '<br><br>Runtime jawab nahi de raha — Arduino mode se flash kar raha hoon...', '#FF9900');
+                ArduinoUploadFlow(data, fqbn, comPortSelected).catch(function (e2) {
+                    RoboSiddhiShow(RoboSiddhiEsc((e2 && e2.message) || e2), '#FF0000');
+                });
+            });
+            return;
+        }
+        if (canRuntime) {
+            // Unknown board state: quick 1.5s probe, then instant or Arduino.
+            RoboSiddhiShow('Board check ho raha hai (runtime?)...', '#FFFFFF');
+            window.RoboSiddhi.runtime({ op: 'detect', port: comPortSelected, timeoutMs: 1500 }).then(function () {
+                RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
+                    RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
+                });
+            }).catch(function () {
+                RoboSiddhiShow('Runtime nahi mila — Arduino mode se flash ho raha hai.<br>' + MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai — RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
+                ArduinoUploadFlow(data, fqbn, comPortSelected).catch(function (err) {
+                    RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
+                });
+            });
+            return;
+        }
+        // Blocks need Arduino mode (compiler said so).
         RoboSiddhiShow(MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai — RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
-        window.RoboSiddhi.writeSketch(data).then(function () {
-            return window.RoboSiddhi.upload({ fqbn: fqbn, port: comPortSelected, verbose: RoboSiddhiVerbose(), force: RoboSiddhiForce(), uploadSpeed: RoboSiddhiSpeed() });
-        }).then(function (res) {
-            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_upload_ok'] + '<br><b>ABB RST DABAO (ek baar) YA USB cable nikalo-lagao — tabhi naya program chalega.</b>' + RoboSiddhiPerfLine(res, 'upload'), '#00FF00');
-            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)) + RoboSiddhiPerfLine(res, 'upload'), '#FF0000');
-        }).catch(function (err) {
+        ArduinoUploadFlow(data, fqbn, comPortSelected).catch(function (err) {
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
         });
     };
@@ -252,7 +307,10 @@ window.addEventListener('load', function load() {
             return window.RoboSiddhi.upload({ fqbn: fqbn, port: port, sketch: 'runtime', verbose: RoboSiddhiVerbose() });
         }).then(function (res) {
             var secs = ((Date.now() - t0) / 1000).toFixed(1);
-            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br><b>Runtime flashed in ' + secs + 's.</b> Ab Send button se program bhejo — reflash nahi hoga.<br>ABB RST DABAO (ek baar).', '#00FF00');
+            if (res.ok) {
+                try { window.localStorage.setItem('rs-runtime-ok:' + port, '1'); } catch (e) {}
+                RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br><b>Runtime flashed in ' + secs + 's.</b> Ab Upload dabate hi program ~1s me chalega (reflash nahi hoga).<br>ABB RST DABAO (ek baar).', '#00FF00');
+            }
             else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)), '#FF0000');
         }).catch(function (err) {
             if (err !== 'stop') RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
@@ -302,6 +360,7 @@ window.addEventListener('load', function load() {
             var secs = ((Date.now() - t0) / 1000).toFixed(1);
             RoboSiddhiShow('<b>Program RUNNING on runtime (' + res.ops + ' ops, transfer ' + secs + 's).</b><br>' + RoboSiddhiEsc((res.log || []).join(' | ')), '#00FF00');
         }).catch(function (err) {
+            try { window.localStorage.removeItem('rs-runtime-ok:' + port); } catch (e) {}
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err) + '<br><br>Runtime nahi mila? Pehle Flash (bolt) button se firmware flash karo.', '#FF0000');
         });
     });
