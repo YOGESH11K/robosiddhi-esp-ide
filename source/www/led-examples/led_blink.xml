@@ -1,0 +1,21 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- LED blink (GPIO2): 500ms ON, 500ms OFF, repeat. Upload -> USB replug -> blink -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP"></statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_led_blink">
+        <field name="PIN">2</field>
+        <value name="ON_MS">
+          <block type="math_number">
+            <field name="NUM">500</field>
+          </block>
+        </value>
+        <value name="OFF_MS">
+          <block type="math_number">
+            <field name="NUM">500</field>
+          </block>
+        </value>
+      </block>
+    </statement>
+  </block>
+</xml>

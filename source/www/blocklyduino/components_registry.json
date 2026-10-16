@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "note": "Every component marked supported must have blocks + generator + docs. Others are Planned.",
+  "components": [
+    {
+      "id": "led", "name": "Standard LED (external)", "status": "supported",
+      "protocol": "GPIO digital", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1, "vccViaResistor": "3V3 via 220Ω", "gnd": 1 },
+      "voltage": "3.3V with 220Ω series resistor. Never drive LED without resistor.",
+      "libraries": [], "blocks": ["robosiddhi_led_set", "robosiddhi_led_blink", "robosiddhi_led_fade"],
+      "wiring": "GPIO -> 220Ω -> LED anode (+), LED cathode (-) -> GND. Onboard LED needs no wiring.",
+      "example": "www/examples/esp_blink.xml"
+    },
+    {
+      "id": "rgb_led", "name": "RGB LED (common cathode)", "status": "supported",
+      "protocol": "3x GPIO PWM", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev"],
+      "pins": { "signal": 3 }, "voltage": "3.3V, 220Ω per channel",
+      "libraries": [], "blocks": ["robosiddhi_rgb_set"],
+      "wiring": "R/G/B pins via 220Ω to 3 PWM GPIOs, common pin to GND (cathode) or 3V3 (anode + inverted logic).",
+      "example": null
+    },
+    {
+      "id": "buzzer", "name": "Active/Passive buzzer", "status": "supported",
+      "protocol": "GPIO digital/PWM", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V/5V module VCC; signal 3.3V OK",
+      "libraries": [], "blocks": ["robosiddhi_buzzer"],
+      "wiring": "VCC->3V3/5V, GND->GND, I/O->GPIO. Active buzzes on HIGH; passive needs tone().",
+      "example": null
+    },
+    {
+      "id": "dht11", "name": "DHT11 temperature+humidity", "status": "supported",
+      "protocol": "Single-wire digital", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V-5V VCC, 10k pull-up on DATA recommended",
+      "libraries": [{ "arduino": "DHT sensor library", "version": ">=1.4.4" }, { "arduino": "Adafruit Unified Sensor", "version": ">=1.1.9" }],
+      "blocks": ["robosiddhi_dht_read"],
+      "wiring": "VCC->3V3, GND->GND, DATA->GPIO with 10k pull-up to VCC. Sample ≥1s apart (DHT11).",
+      "example": "www/examples/esp_temp_alarm.xml"
+    },
+    {
+      "id": "dht22", "name": "DHT22/AM2302 temperature+humidity", "status": "supported",
+      "protocol": "Single-wire digital", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V-5V VCC, 10k pull-up on DATA",
+      "libraries": [{ "arduino": "DHT sensor library" }, { "arduino": "Adafruit Unified Sensor" }],
+      "blocks": ["robosiddhi_dht_read"],
+      "wiring": "Same as DHT11. Sample ≥2s apart.",
+      "example": "www/examples/esp_temp_alarm.xml"
+    },
+    {
+      "id": "hcsr04", "name": "HC-SR04 ultrasonic", "status": "supported",
+      "protocol": "TRIG/ECHO digital timing", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 2 }, "voltage": "VCC 5V preferred. 3V3-only boards: VCC->3V3 works for short range (<1m), then ECHO is 3.3V-safe direct (NO divider).",
+      "libraries": [], "blocks": ["robosiddhi_hcsr04", "robosiddhi_obstacle_guard"],
+      "wiring": "VCC->5V, GND->GND, TRIG->GPIO (out), ECHO->divider->GPIO (in). 2cm-400cm.",
+      "example": "www/examples/esp_obstacle_guard.xml"
+    },
+    {
+      "id": "pir", "name": "PIR motion (HC-SR501)", "status": "supported",
+      "protocol": "GPIO digital", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "VCC 5V (some 3.3V). OUT is 3.3V-safe on most modules.",
+      "libraries": [], "blocks": ["robosiddhi_pir_read"],
+      "wiring": "VCC->5V, GND->GND, OUT->GPIO. Warm-up ~60s. Adjust sensitivity/time pots.",
+      "example": "www/examples/esp_motion.xml"
+    },
+    {
+      "id": "ldr", "name": "LDR light sensor (analog)", "status": "supported",
+      "protocol": "Analog voltage divider", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V divider: LDR + 10k to GND, midpoint to ADC",
+      "libraries": [], "blocks": ["robosiddhi_ldr_read", "robosiddhi_soil_read"],
+      "wiring": "3V3->LDR->node->10k->GND; node->ADC GPIO. ESP8266: node->A0.",
+      "example": "www/examples/esp_autolight.xml"
+    },
+    {
+      "id": "soil_analog", "name": "Soil moisture (analog)", "status": "supported",
+      "protocol": "Analog", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V VCC. Corrosion: power probe only while reading on capacitive v1.2+",
+      "libraries": [], "blocks": ["robosiddhi_soil_read"],
+      "wiring": "VCC->3V3, GND->GND, AO->ADC GPIO (A0 on ESP8266). Prefer capacitive over resistive.",
+      "example": "www/examples/esp_soil.xml"
+    },
+    {
+      "id": "ds18b20", "name": "DS18B20 (1-Wire)", "status": "supported",
+      "protocol": "1-Wire", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "3.3V, 4.7k pull-up on DQ",
+      "libraries": [{ "arduino": "OneWire" }, { "arduino": "DallasTemperature" }],
+      "blocks": ["ds18b20_search", "ds18b20_temp"],
+      "wiring": "Existing blocks retained.",
+      "example": null
+    },
+    {
+      "id": "servo", "name": "Servo motor (SG90)", "status": "supported",
+      "protocol": "PWM 50Hz", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "Separate 5V supply for servo; common GND with ESP. Signal 3.3V OK.",
+      "libraries": [{ "arduino": "ESP32Servo (ESP32)" }, { "arduino": "Servo (ESP8266/AVR)" }],
+      "blocks": ["servo_move", "servo_read_degrees"],
+      "wiring": "Do NOT power servo from ESP 3V3 pin for more than micro-servo test.",
+      "example": "www/examples/esp_servo_pin4.xml"
+    },
+    {
+      "id": "mpu6050", "name": "MPU6050 accel/gyro (I2C)", "status": "supported", "protocol": "I2C",
+      "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 2 }, "voltage": "3.3V", "libraries": [{ "arduino": "Adafruit MPU6050" }, { "arduino": "Adafruit Unified Sensor" }],
+      "blocks": ["robosiddhi_mpu6050_read"], "wiring": "VCC->3V3, GND->GND, SDA->SDA pin, SCL->SCL pin.", "example": null
+    },
+    {
+      "id": "oled_ssd1306", "name": "OLED SSD1306 128x64 (I2C)", "status": "supported", "protocol": "I2C",
+      "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 2 }, "voltage": "3.3V", "libraries": [{ "arduino": "Adafruit SSD1306" }, { "arduino": "Adafruit GFX Library" }],
+      "blocks": ["robosiddhi_oled_init", "robosiddhi_oled_print", "robosiddhi_oled_clear"], "wiring": "VCC->3V3, GND->GND, SDA/SCL to board I2C pins.", "example": "www/examples/esp_oled_hello.xml"
+    },
+    {
+      "id": "lcd1602_i2c", "name": "LCD 1602 with PCF8574 I2C backpack", "status": "supported", "protocol": "I2C",
+      "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 2 }, "voltage": "5V VCC (backpack), 3.3V-safe SDA/SCL on most",
+      "libraries": [{ "arduino": "LiquidCrystal_I2C" }], "blocks": ["robosiddhi_lcd_init", "robosiddhi_lcd_print", "robosiddhi_lcd_clear"], "wiring": "VCC->5V, GND->GND, SDA/SCL.", "example": null
+    },
+    {
+      "id": "relay", "name": "Relay module (optocoupler)", "status": "supported",
+      "protocol": "GPIO digital", "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 1 }, "voltage": "SAFETY: mains wiring only by qualified person. Module VCC per label (5V), JD-VCC jumper.",
+      "libraries": [], "blocks": ["RELAY_LOGICAL", "RELAY_MOSFET"],
+      "wiring": "Existing relay blocks retained. Keep mains isolated; prefer low-voltage loads for classrooms.",
+      "example": null
+    },
+    {
+      "id": "dc_motor_l298n", "name": "DC motor via L298N/L293D", "status": "supported", "protocol": "2x DIR + PWM",
+      "boards": ["esp32_devkit_v1", "nodemcu_32s"], "pins": { "signal": 3 },
+      "voltage": "Motor supply separate; common GND; ESP signals 3.3V OK for most drivers",
+      "libraries": [], "blocks": ["robosiddhi_motor_l298n"], "wiring": "ENA->PWM GPIO, IN1/IN2->GPIO, motor supply to driver.", "example": null
+    },
+    {
+      "id": "wifi", "name": "Wi-Fi + HTTP/MQTT", "status": "supported", "protocol": "WiFi",
+      "boards": ["esp32_devkit_v1", "nodemcu_32s", "esp32s2_dev", "esp32s3_dev", "esp32c3_dev", "esp8266_nodemcu"],
+      "pins": { "signal": 0 }, "voltage": "", "libraries": [{ "arduino": "PubSubClient (MQTT only)" }],
+      "blocks": ["robosiddhi_wifi_connect", "robosiddhi_http_get", "robosiddhi_mqtt_publish"], "wiring": "No wiring. ADC2 unavailable with Wi-Fi on classic ESP32.", "example": "www/examples/esp_wifi_http.xml"
+    }
+  ]
+}

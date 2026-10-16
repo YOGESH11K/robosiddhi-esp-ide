@@ -1,0 +1,29 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- WiFi HTTP: connect, GET example.com, print body to serial. Fill in SSID/password. -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+      <next>
+        <block type="robosiddhi_wifi_connect">
+          <value name="SSID"><block type="text"><field name="TEXT">YourSSID</field></block></value>
+          <value name="PASS"><block type="text"><field name="TEXT">YourPassword</field></block></value>
+        </block>
+      </next>
+    </statement>
+    <statement name="LOOP">
+      <block type="board_serial_printfor">
+        <field name="SPEED">115200</field>
+        <value name="TEXT">
+          <block type="robosiddhi_http_get">
+            <value name="URL"><block type="text"><field name="TEXT">http://example.com</field></block></value>
+          </block>
+        </value>
+        <next>
+          <block type="board_base_delay">
+            <value name="DELAY_TIME"><block type="math_number"><field name="NUM">10000</field></block></value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

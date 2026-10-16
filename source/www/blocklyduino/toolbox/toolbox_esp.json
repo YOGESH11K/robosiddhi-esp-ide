@@ -1,0 +1,31 @@
+var toolbox_esp = {
+  "kind": "category",
+  "name": "ESP Components",
+  "toolboxitemid": "ESP",
+  "colour": "160",
+  "contents": [
+    { "kind": "block", "type": "robosiddhi_led_set" },
+    { "kind": "block", "type": "robosiddhi_rgb_set" },
+    { "kind": "block", "type": "robosiddhi_buzzer" },
+    { "kind": "block", "type": "robosiddhi_dht_read" },
+    { "kind": "block", "type": "robosiddhi_hcsr04" },
+    { "kind": "block", "type": "robosiddhi_obstacle_guard" },
+    { "kind": "block", "type": "robosiddhi_pir_read" },
+    { "kind": "block", "type": "robosiddhi_ldr_read" },
+    { "kind": "block", "type": "robosiddhi_soil_read" },
+    { "kind": "block", "type": "robosiddhi_esp_serial_print" },
+    { "kind": "block", "type": "robosiddhi_mpu6050_read" },
+    { "kind": "block", "type": "robosiddhi_motor_l298n" },
+    { "kind": "block", "blockxml": "<block type='servo_move'><field name='PIN'>4</field><value name='DEGREE'><shadow type='math_number'><field name='NUM'>90</field></shadow></value></block>" },
+    { "kind": "block", "type": "servo_read_degrees" },
+    { "kind": "block", "type": "robosiddhi_oled_init" },
+    { "kind": "block", "type": "robosiddhi_oled_print" },
+    { "kind": "block", "type": "robosiddhi_oled_clear" },
+    { "kind": "block", "type": "robosiddhi_lcd_init" },
+    { "kind": "block", "type": "robosiddhi_lcd_print" },
+    { "kind": "block", "type": "robosiddhi_lcd_clear" },
+    { "kind": "block", "type": "robosiddhi_wifi_connect" },
+    { "kind": "block", "type": "robosiddhi_http_get" },
+    { "kind": "block", "type": "robosiddhi_mqtt_publish" }
+  ]
+};

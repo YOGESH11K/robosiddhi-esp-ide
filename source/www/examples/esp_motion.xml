@@ -1,0 +1,26 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- Motion detector: PIR OUT to 13? use 14 for PIR, buzzer/LED on 13 -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+    </statement>
+    <statement name="LOOP">
+      <block type="controls_if">
+        <value name="IF0">
+          <block type="robosiddhi_pir_read"><field name="PIN">14</field></block>
+        </value>
+        <statement name="DO0">
+          <block type="robosiddhi_buzzer"><field name="PIN">13</field><field name="STAT">HIGH</field></block>
+        </statement>
+        <statement name="ELSE">
+          <block type="robosiddhi_buzzer"><field name="PIN">13</field><field name="STAT">LOW</field></block>
+        </statement>
+        <next>
+          <block type="board_base_delay">
+            <value name="DELAY_TIME"><block type="math_number"><field name="NUM">200</field></block></value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

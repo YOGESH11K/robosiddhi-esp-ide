@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-final/
+dist-live/
+sync.ffs_db
+compiler/packages/
+compiler/build/
+compiler/tmp/
+tmp/

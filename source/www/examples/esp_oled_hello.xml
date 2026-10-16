@@ -1,0 +1,22 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- OLED hello: SSD1306 0x3C on I2C, shows DHT temperature. Needs Adafruit SSD1306+GFX+DHT libs. -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+      <next>
+        <block type="robosiddhi_oled_init"><field name="ADDR">0x3C</field></block>
+      </next>
+    </statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_oled_print">
+        <field name="SIZE">2</field>
+        <value name="TEXT"><block type="robosiddhi_dht_read"><field name="MODEL">DHT11</field><field name="PIN">4</field><field name="WHAT">TEMP</field></block></value>
+        <next>
+          <block type="board_base_delay">
+            <value name="DELAY_TIME"><block type="math_number"><field name="NUM">2000</field></block></value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

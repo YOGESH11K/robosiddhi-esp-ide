@@ -1,0 +1,17 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- Obstacle guard: HC-SR04 (TRIG 4, ECHO 18) + LED 2. Closer than 10cm -> LED OFF, else ON. ECHO needs 1k/2k divider! -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+    </statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_obstacle_guard">
+        <field name="PIN_TRIG">4</field>
+        <field name="PIN_ECHO">18</field>
+        <field name="PIN_LED">2</field>
+        <field name="DIST_CM">10</field>
+        <field name="CLOSE_STAT">LOW</field>
+      </block>
+    </statement>
+  </block>
+</xml>

@@ -1,0 +1,115 @@
+{
+    "name": "robosiddhi",
+    "version": "0.8.0",
+    "description": "robosiddhi is a web-based visual programming editor for [Arduino boards](http://www.arduino.cc/)",
+    "license": "GPL-3.0",
+    "author": "Sébastien Canet <scanet@libreduc.cc>",
+    "main": "main.js",
+    "keywords": [
+        "blockly",
+        "BLOCKLY",
+        "arduino",
+        "ARDUINO",
+        "blocklyduinoreboot",
+        "blocklyduino2",
+        "BlocklyDuinoElectron",
+        "BlocklyDuino2Electron",
+        "blocks",
+        "scratch",
+        "electron",
+        "ELECTRON",
+        "serialport",
+        "SERIALPORT",
+        "electron-builder"
+    ],
+    "build": {
+        "asar": true,
+        "asarUnpack": [
+            "**/node_modules/@serialport/bindings-cpp/**"
+        ],
+        "appId": "com.robosiddhi.app",
+        "directories": {
+            "buildResources": "./src",
+            "output": "./dist"
+        },
+        "files": [
+            "!v0.*/*",
+            "!nbproject/*",
+            "!.github/*",
+            "!dist/**",
+            "!dist-final/**",
+            "!dist-live/**",
+            "!tmp/**",
+            "!sync.ffs_db"
+        ],
+        "productName": "Robosiddhi",
+        "win": {
+            "target": [
+                "portable",
+                "zip"
+            ],
+            "signAndEditExecutable": false,
+            "icon": "src/install.ico"
+        },
+        "nsis": {
+            "installerIcon": "src/install.ico",
+            "uninstallerIcon": "src/icon.ico",
+            "oneClick": false,
+            "perMachine": true,
+            "deleteAppDataOnUninstall": true,
+            "allowToChangeInstallationDirectory": true,
+            "runAfterFinish": true
+        },
+        "fileAssociations": {
+            "ext": "bduino",
+            "name": "BlocklyDuino File",
+            "role": "Editor",
+            "icon": "src/icon.ico"
+        },
+        "extraFiles": [
+            "compiler",
+            "documentation",
+            "nodejs",
+            "sketchbook",
+            "CHANGELOG.txt",
+            "README.md",
+            "LICENSE"
+        ],
+        "publish": [
+            {
+                "provider": "github",
+                "repo": "robosiddhi",
+                "owner": "YOGESH11K",
+                "releaseType": "release"
+            }
+        ]
+    },
+    "scripts": {
+        "postinstall": "electron-builder install-app-deps",
+        "prepare": "echo Native rebuild not required - serialport 10 ships N-API prebuilds",
+        "start": "electron .",
+        "test": "node tests/run_tests.js",
+        "setup:esp": "node scripts/setup_esp.js",
+        "compile": "electron-builder --win --x64"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/BlocklyDuino/BlocklyDuino2Electron"
+    },
+    "bugs": {
+        "url": "https://github.com/BlocklyDuino/BlocklyDuinoElectron/issues"
+    },
+    "devDependencies": {
+        "electron": "^39.8.10",
+        "electron-builder": "^24.13.3"
+    },
+    "dependencies": {
+        "child_process": "^1.0.2",
+        "electron-build-env": "^0.2.0",
+        "electron-updater": "^4.3.8",
+        "fs-extra": "^9.1.0",
+        "npm-check-updates": "^23.1.0",
+        "serialport": "^10.5.0",
+        "tableify": "^1.1.0"
+    }
+}

@@ -1,0 +1,30 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- Temp alarm: DHT22 on GPIO4, LED on 13, threshold 30C. Needs DHT + Adafruit Unified Sensor libs. -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+    </statement>
+    <statement name="LOOP">
+      <block type="controls_if">
+        <value name="IF0">
+          <block type="logic_compare">
+            <field name="OP">GT</field>
+            <value name="A"><block type="robosiddhi_dht_read"><field name="MODEL">DHT22</field><field name="PIN">4</field><field name="WHAT">TEMP</field></block></value>
+            <value name="B"><block type="math_number"><field name="NUM">30</field></block></value>
+          </block>
+        </value>
+        <statement name="DO0">
+          <block type="robosiddhi_led_set"><field name="PIN">13</field><field name="STAT">HIGH</field></block>
+        </statement>
+        <statement name="ELSE">
+          <block type="robosiddhi_led_set"><field name="PIN">13</field><field name="STAT">LOW</field></block>
+        </statement>
+        <next>
+          <block type="board_base_delay">
+            <value name="DELAY_TIME"><block type="math_number"><field name="NUM">2000</field></block></value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

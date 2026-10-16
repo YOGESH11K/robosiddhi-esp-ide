@@ -1,0 +1,19 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- Soil monitor: analog soil AO to 32 (ESP32) / A0 (ESP8266). Prints value. -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+    </statement>
+    <statement name="LOOP">
+      <block type="board_serial_printfor">
+        <field name="SPEED">115200</field>
+        <value name="TEXT"><block type="robosiddhi_soil_read"><field name="PIN">32</field></block></value>
+        <next>
+          <block type="board_base_delay">
+            <value name="DELAY_TIME"><block type="math_number"><field name="NUM">1000</field></block></value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

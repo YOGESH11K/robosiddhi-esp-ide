@@ -1,0 +1,12 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- RoboSiddhi: LED on GPIO2 solid ON (loop me sirf ON, koi OFF nahi = blink nahi hoga) -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP"></statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_led_set" x="60" y="150">
+        <field name="PIN">2</field>
+        <field name="STAT">HIGH</field>
+      </block>
+    </statement>
+  </block>
+</xml>

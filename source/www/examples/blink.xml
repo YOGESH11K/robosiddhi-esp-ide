@@ -1,0 +1,42 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+    <block type="base_setup" id="setup1" x="30" y="30">
+        <statement name="SETUP">
+            <block type="board_base_inout_buildin_led" id="blinkSet1" x="60" y="80">
+                <field name="LED_NUM">13</field>
+                <field name="STAT">HIGH</field>
+            </block>
+        </statement>
+    </block>
+    <block type="base_loop" id="loop1" x="30" y="180">
+        <statement name="LOOP">
+            <block type="board_base_inout_buildin_led" id="blinkLoop1" x="60" y="230">
+                <field name="LED_NUM">13</field>
+                <field name="STAT">HIGH</field>
+                <next>
+                    <block type="board_base_delay" id="blinkDelay1" x="60" y="290">
+                        <value name="DELAY_TIME">
+                            <block type="math_number" id="blinkNum1" x="220" y="290">
+                                <field name="NUM">1000</field>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="board_base_inout_buildin_led" id="blinkLoop2" x="60" y="350">
+                                <field name="LED_NUM">13</field>
+                                <field name="STAT">LOW</field>
+                                <next>
+                                    <block type="board_base_delay" id="blinkDelay2" x="60" y="410">
+                                        <value name="DELAY_TIME">
+                                            <block type="math_number" id="blinkNum2" x="220" y="410">
+                                                <field name="NUM">1000</field>
+                                            </block>
+                                        </value>
+                                    </block>
+                                </next>
+                            </block>
+                        </next>
+                    </block>
+                </next>
+            </block>
+        </statement>
+    </block>
+</xml>

@@ -1,0 +1,12 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- LED solid OFF (GPIO2). Upload -> USB replug -> LED OFF -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP"></statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_led_set">
+        <field name="PIN">2</field>
+        <field name="STAT">LOW</field>
+      </block>
+    </statement>
+  </block>
+</xml>

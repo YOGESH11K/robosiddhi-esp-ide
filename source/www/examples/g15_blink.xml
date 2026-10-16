@@ -1,0 +1,40 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+    <block type="base_setup_loop" id="g15setuploop" x="30" y="30">
+        <statement name="SETUP">
+            <block type="board_base_inout_buildin_led" id="g15setup" x="60" y="80">
+                <field name="LED_NUM">15</field>
+                <field name="STAT">HIGH</field>
+            </block>
+        </statement>
+        <statement name="LOOP">
+            <block type="board_base_inout_buildin_led" id="g15loop1" x="60" y="230">
+                <field name="LED_NUM">15</field>
+                <field name="STAT">HIGH</field>
+                <next>
+                    <block type="board_base_delay" id="g15delay1" x="60" y="290">
+                        <value name="DELAY_TIME">
+                            <block type="math_number" id="g15num1" x="220" y="290">
+                                <field name="NUM">1000</field>
+                            </block>
+                        </value>
+                        <next>
+                            <block type="board_base_inout_buildin_led" id="g15loop2" x="60" y="350">
+                                <field name="LED_NUM">15</field>
+                                <field name="STAT">LOW</field>
+                                <next>
+                                    <block type="board_base_delay" id="g15delay2" x="60" y="410">
+                                        <value name="DELAY_TIME">
+                                            <block type="math_number" id="g15num2" x="220" y="410">
+                                                <field name="NUM">1000</field>
+                                            </block>
+                                        </value>
+                                    </block>
+                                </next>
+                            </block>
+                        </next>
+                    </block>
+                </next>
+            </block>
+        </statement>
+    </block>
+</xml>

@@ -1,0 +1,14 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- LED glow: smooth fade up-down on GPIO2 (PWM). Wire: G2 -> 220ohm -> LED long leg, short leg -> GND -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP">
+      <block type="board_serial_init"><field name="SPEED">115200</field></block>
+    </statement>
+    <statement name="LOOP">
+      <block type="robosiddhi_led_fade">
+        <field name="PIN">2</field>
+        <value name="DURATION"><block type="math_number"><field name="NUM">2000</field></block></value>
+      </block>
+    </statement>
+  </block>
+</xml>

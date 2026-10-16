@@ -1,0 +1,16 @@
+<xml xmlns="http://www.w3.org/1999/xhtml">
+  <!-- LED fixed brightness (GPIO2): steady dim at 100/255. Change NUM 0-255 for brightness. Upload -> USB replug -->
+  <block type="base_setup_loop" x="30" y="30">
+    <statement name="SETUP"></statement>
+    <statement name="LOOP">
+      <block type="board_base_inout_analog_write">
+        <field name="PIN">2</field>
+        <value name="PWM">
+          <block type="math_number">
+            <field name="NUM">100</field>
+          </block>
+        </value>
+      </block>
+    </statement>
+  </block>
+</xml>

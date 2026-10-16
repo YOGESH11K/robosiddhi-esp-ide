@@ -1,0 +1,102 @@
+/**
+* @license
+* Copyright 2020 Sébastien CANET
+* SPDX-License-Identifier: BSD-3-Clause
+*/
+
+/* CSS specific added for the theme */
+
+body {
+    background: linear-gradient(135deg, #4F46E5 0%, #4338CA 60%, #6D28D9 100%);
+    min-height: 100vh;
+}
+#separator {
+    background-color: #4F46E5;
+}
+#helpModal_header {
+    background: linear-gradient(90deg, #4F46E5 0%, #6D28D9 100%);
+}
+#keyboard_nav_header {
+    background: linear-gradient(90deg, #4F46E5 0%, #6D28D9 100%);
+}
+#buttonsMenuPopupInside,
+#buttonsToolsPopupInside,
+#buttonsIotPopupInside{
+    background-color: #4F46E5;
+    padding: 5px;
+    border-radius: 8px;
+}
+.config_content {
+    background-color: #4F46E5;
+}
+.modal-header, .modal-footer {
+    background: linear-gradient(90deg, #4F46E5 0%, #6D28D9 100%);
+}
+.accordion {
+  background-color: #4F46E5;
+}
+.accordion:hover {
+  color: #4F46E5;
+}
+.active {
+    color: #4F46E5;
+  background-color: #FBBF24;
+}
+.collapsibleButton {
+    background: linear-gradient(90deg, #4F46E5 0%, #6D28D9 100%);
+}
+.active:after {
+    color: #4F46E5;
+}
+#lateral-panel-setup-label {
+    color: #4F46E5;
+}
+.closeModal:hover,
+.closeModal:focus {
+    color: #FBBF24;
+}
+/* Add a background color to the button if it is clicked on (add the .active class with JS), and when you move the mouse over it (hover) */
+.active, .collapsibleButton:hover {
+    background-color: #FBBF24;
+}
+
+/* enhance sliders behavior */
+input:checked + .slider {
+  background-color: #818CF8;
+}
+input:focus + .slider {
+  box-shadow: 0 0 1px #818CF8;
+}
+input:checked + .slider:before {
+  -webkit-transform: translateY(27px);
+  -ms-transform: translateY(27px);
+  transform: translateY(27px);
+}
+
+/**
+ * @fileoverview Toolbox modification, override css style
+ * @source https://blocklycodelabs.dev/codelabs/custom-toolbox
+ */
+/* Makes label white */
+.blocklyTreeLabel {
+  color: white;
+  font-weight: bold;
+  font-size: 20px;
+}
+/* Adds padding around the group of categories and separators */
+.blocklyToolboxContents {
+  padding: .2em;
+}
+/* Adds space between the categories, rounds the corners and adds space around the label */
+.blocklyTreeRow {
+  padding: 2px;
+  border-radius: 4px;
+  height: initial;
+}
+/* Changes color of the icon to white */
+.customIcon {
+  color: white;
+  margin-left: 5px;
+  vertical-align: middle;
+  width: 25px;
+}
