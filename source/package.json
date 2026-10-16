@@ -68,6 +68,7 @@
         },
         "extraFiles": [
             "compiler",
+            "runtime",
             "documentation",
             "nodejs",
             "sketchbook",

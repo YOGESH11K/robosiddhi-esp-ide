@@ -45,7 +45,12 @@ function cliExePath() {
     return path.join(path.dirname(app.getPath('exe')), 'compiler', 'arduino-cli.exe');
 }
 function sketchDirPath(sketch) {
-    if (sketch === 'runtime') return path.join(__dirname, 'runtime', 'RoboSiddhiRuntime');
+    if (sketch === 'runtime') {
+        // Runtime sources ship OUTSIDE the asar (see package.json extraFiles),
+        // next to the exe — the asar path is read-only and has no runtime/.
+        if (DEV_MODE) return path.join(__dirname, 'runtime', 'RoboSiddhiRuntime');
+        return path.join(path.dirname(app.getPath('exe')), 'runtime', 'RoboSiddhiRuntime');
+    }
     if (DEV_MODE) return path.join(__dirname, 'compiler', 'tmp');
     return path.join(app.getPath('userData'), 'sketch');
 }

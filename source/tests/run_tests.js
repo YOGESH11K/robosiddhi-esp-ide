@@ -659,6 +659,15 @@ test('runtime backend supports fast probe timeouts', () => {
   });
 });
 
+test('runtime sources ship beside the exe (packaged layout)', () => {
+  const fs = require('fs');
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
+  assert.ok(pkg.build.extraFiles.includes('runtime'), 'runtime in extraFiles');
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  assert.ok(/sketch === 'runtime'/.test(main), 'runtime sketch branch exists');
+  assert.ok(main.includes("path.dirname(app.getPath('exe')), 'runtime'"), 'packaged runtime resolved beside exe, not in asar');
+});
+
 Promise.all(pendingAsync).then(() => {
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
