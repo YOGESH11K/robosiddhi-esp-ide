@@ -11,6 +11,58 @@
   'use strict';
 
   var PROJECT_SCHEMA = 1;
+  var CACHE_SCHEMA = 2;
+
+  // Hex digest: Node crypto when available (tests + main process),
+  // FNV-1a fallback in plain browsers (documented, non-crypto).
+  function shaHex(s) {
+    try {
+      if (typeof require === 'function') {
+        return require('crypto').createHash('sha256').update(String(s), 'utf8').digest('hex');
+      }
+    } catch (e) {}
+    var h1 = 0x811c9dc5, h2 = 0x01000193, h3 = 0xdeadbeef;
+    s = String(s);
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 16777619);
+      h2 = Math.imul(h2 + c, 31);
+      h3 = Math.imul(h3 ^ (c + i), 2654435761);
+    }
+    function h(x) { return ('0000000' + (x >>> 0).toString(16)).slice(-8); }
+    return h(h1) + h(h2) + h(h3) + h(h1 ^ h3);
+  }
+
+  function codeHash(code) { return shaHex(code).slice(0, 16); }
+
+  // Deterministic cache key over EVERYTHING that affects the binary.
+  // fields: {codeHash, fqbn, coreVersion, cliVersion, flags, libVersions}
+  function cacheKey(f) {
+    f = f || {};
+    var libs = f.libVersions && typeof f.libVersions === 'object' ? f.libVersions : {};
+    var names = Object.keys(libs).sort();
+    var canon = 'v2|' + (f.codeHash || '') + '|' + (f.fqbn || '') + '|' +
+      (f.coreVersion || '') + '|' + (f.cliVersion || '') + '|' +
+      (f.flags || '') + '|' + names.map(function (n) { return n + '@' + libs[n]; }).join(',');
+    return shaHex(canon).slice(0, 32);
+  }
+
+  // entry: cache.json object. binSha256: hex of the .bin on disk (or null).
+  // returns {ok:true} or {ok:false, reason:'...'} — reason codes are stable for UI/tests.
+  function validateCacheEntry(entry, want, binSha256) {
+    if (!entry || typeof entry !== 'object') return { ok: false, reason: 'no-entry' };
+    if (entry.schema !== CACHE_SCHEMA) return { ok: false, reason: 'schema-mismatch' };
+    if (entry.fqbn !== want.fqbn) return { ok: false, reason: 'board-changed' };
+    if (entry.codeHash !== want.codeHash) return { ok: false, reason: 'code-changed' };
+    if ((entry.coreVersion || '') !== (want.coreVersion || '')) return { ok: false, reason: 'core-changed' };
+    if ((entry.cliVersion || '') !== (want.cliVersion || '')) return { ok: false, reason: 'toolchain-changed' };
+    if ((entry.flags || '') !== (want.flags || '')) return { ok: false, reason: 'flags-changed' };
+    if (entry.status !== 'ok') return { ok: false, reason: 'build-not-ok' };
+    if (!entry.binName) return { ok: false, reason: 'no-binary' };
+    if (!binSha256) return { ok: false, reason: 'binary-missing' };
+    if (entry.binSha256 !== binSha256) return { ok: false, reason: 'binary-corrupt' };
+    return { ok: true, reason: 'hit' };
+  }
 
   function quoteArg(s) {
     s = String(s);
@@ -19,16 +71,39 @@
   }
 
   // Build arduino-cli commands. Never include workspace text — only validated enums/paths.
+  // opts (optional): {verbose:bool, buildPath:string, jobs:number, buildProperties:[{k,v}]}
   function compileCommand(fqbn, sketchDir, verbose) {
     if (!fqbn || fqbn === 'none') throw new Error('Select a board first.');
     if (!sketchDir) throw new Error('Missing sketch dir.');
-    return 'arduino-cli.exe compile ' + (verbose ? '-v ' : '') + '-b ' + quoteArg(fqbn) + ' ' + quoteArg(sketchDir);
+    var o = (verbose && typeof verbose === 'object') ? verbose : { verbose: !!verbose };
+    var parts = ['arduino-cli.exe', 'compile', '-j', String(o.jobs === undefined ? 0 : o.jobs)];
+    if (o.verbose) parts.push('-v');
+    parts.push('-b', quoteArg(fqbn));
+    (o.buildProperties || []).forEach(function (p) { parts.push('--build-property', quoteArg(p.k + '=' + p.v)); });
+    if (o.buildPath) parts.push('--build-path', quoteArg(o.buildPath));
+    parts.push(quoteArg(sketchDir));
+    return parts.join(' ');
   }
+  // opts (optional): {verbose:bool, inputDir:string, uploadSpeed:number|string, verify:bool,
+  //                   uploadProperties:[{k,v}]}
   function uploadCommand(fqbn, port, sketchDir, verbose) {
     if (!fqbn || fqbn === 'none') throw new Error('Select a board first.');
     if (!port || port === 'none') throw new Error('Select a serial port first.');
     if (!/^(COM\d+|\/dev\/tty[A-Za-z0-9._-]+)$/.test(port)) throw new Error('Suspicious port "' + port + '" rejected.');
-    return 'arduino-cli.exe upload ' + (verbose ? '-v ' : '') + '-p ' + quoteArg(port) + ' -b ' + quoteArg(fqbn) + ' ' + quoteArg(sketchDir);
+    var o = (verbose && typeof verbose === 'object') ? verbose : { verbose: !!verbose };
+    var parts = ['arduino-cli.exe', 'upload'];
+    if (o.verbose) parts.push('-v');
+    parts.push('-p', quoteArg(port), '-b', quoteArg(fqbn));
+    if (o.inputDir) parts.push('--input-dir', quoteArg(o.inputDir));
+    if (o.uploadSpeed) {
+      var sp = String(o.uploadSpeed);
+      if (!/^\d+$/.test(sp)) throw new Error('Bad upload speed "' + sp + '".');
+      parts.push('--upload-property', quoteArg('upload.speed=' + sp));
+    }
+    (o.uploadProperties || []).forEach(function (p) { parts.push('--upload-property', quoteArg(p.k + '=' + p.v)); });
+    if (o.verify) parts.push('--verify');
+    parts.push(quoteArg(sketchDir));
+    return parts.join(' ');
   }
 
   function coreForFqbn(fqbn) {
@@ -77,7 +152,9 @@
   }
 
   return {
-    SCHEMA: PROJECT_SCHEMA, quoteArg: quoteArg,
+    SCHEMA: PROJECT_SCHEMA, CACHE_SCHEMA: CACHE_SCHEMA, quoteArg: quoteArg,
+    shaHex: shaHex, codeHash: codeHash, cacheKey: cacheKey,
+    validateCacheEntry: validateCacheEntry,
     compileCommand: compileCommand, uploadCommand: uploadCommand,
     coreForFqbn: coreForFqbn, diagnoseCompilerError: diagnoseCompilerError,
     newProjectSkeleton: newProjectSkeleton, validateProject: validateProject

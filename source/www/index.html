@@ -200,6 +200,13 @@
                                 <div id="checkDetails">
                                     <input type="checkbox" name="detailedCompilation" id="detailedCompilation"/>
                                     <span id="detailedCompilation_span"> </span>
+                                    <input type="checkbox" name="forceRebuild" id="forceRebuild" title="Ignore cached firmware, recompile from scratch"/>
+                                    <span class="UIText" title="Ignore cached firmware, recompile from scratch">Force rebuild</span>
+                                    <select id="uploadSpeedMenu" title="Flash upload speed (default = board default)">
+                                        <option value="default" selected="selected">Flash: default</option>
+                                        <option value="460800">Flash: 460800</option>
+                                        <option value="921600">Flash: 921600</option>
+                                    </select>
                                 </div>
                                 <div id="infoBoardPort">                                
                                     <span id="boardSelected_span"> </span>
@@ -345,6 +352,16 @@
                             <button id="cleanCLIcacheButton" class="iconButtons CLI" onclick="">
                                 <span id="cleanCLIcache_span">
                                     <i class="fas fa-eraser"></i>
+                                </span>
+                            </button>
+                            <button id="cacheStatusButton" class="iconButtons CLI" onclick="" title="Show cached firmware builds">
+                                <span id="cacheStatusButton_span">
+                                    <i class="fas fa-database"></i>
+                                </span>
+                            </button>
+                            <button id="cleanBuildButton" class="iconButtons CLI" onclick="" title="Clear cached firmware (force full recompile next time)">
+                                <span id="cleanBuildButton_span">
+                                    <i class="fas fa-trash-alt"></i>
                                 </span>
                             </button>
                             <button id="listBoardsButton" class="iconButtons CLI" onclick="">

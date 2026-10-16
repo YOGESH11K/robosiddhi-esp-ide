@@ -35,6 +35,12 @@ window.addEventListener('load', function load() {
     document.getElementById('cleanCLIcacheButton').onclick = function () {
         CliRun('clean-cache', null, MSG['cleanCLIcacheButton_msg']);
     };
+    document.getElementById('cacheStatusButton').onclick = function () {
+        CliRun('cache-status', null, 'Firmware cache status:');
+    };
+    document.getElementById('cleanBuildButton').onclick = function () {
+        CliRun('clean-build', null, 'Clearing cached firmware builds...');
+    };
     document.getElementById('listBoardsButton').onclick = function () {
         CliRun('board-list', null, MSG['listBoardsButton_msg']);
     };

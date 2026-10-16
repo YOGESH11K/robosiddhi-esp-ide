@@ -388,5 +388,64 @@ test('servo on GPIO4: ESP toolbox + ESP32 generator + pin4 example', () => {
   assert.ok(ex.includes('servo_move'), 'example moves servo');
 });
 
+// 14. Persistent firmware cache: key, validation, commands
+test('cache key covers all build inputs', () => {
+  const Build = require('../www/blocklyduino/js/robosiddhi_build.js');
+  const base = { codeHash: 'abc123', fqbn: 'esp32:esp32:esp32', coreVersion: '3.3.12', cliVersion: '1.5.1', flags: 'baud:default', libVersions: {} };
+  const k1 = Build.cacheKey(base);
+  assert.strictEqual(Build.cacheKey(base), k1, 'deterministic');
+  assert.strictEqual(k1.length, 32);
+  ['codeHash', 'fqbn', 'coreVersion', 'cliVersion', 'flags'].forEach(f => {
+    const other = Object.assign({}, base); other[f] = other[f] + 'X';
+    assert.notStrictEqual(Build.cacheKey(other), k1, 'key changes when ' + f + ' changes');
+  });
+  const withLib = Object.assign({}, base, { libVersions: { 'DHT sensor library': '1.4.6' } });
+  assert.notStrictEqual(Build.cacheKey(withLib), k1, 'key changes with lib versions');
+});
+test('cache entry validation rejects every stale case', () => {
+  const Build = require('../www/blocklyduino/js/robosiddhi_build.js');
+  const good = { schema: 2, fqbn: 'esp32:esp32:esp32', codeHash: 'abc123', coreVersion: '3.3.12', cliVersion: '1.5.1', flags: 'baud:default', status: 'ok', binName: 'x.ino.bin', binSha256: 'deadbeef' };
+  const want = { fqbn: 'esp32:esp32:esp32', codeHash: 'abc123', coreVersion: '3.3.12', cliVersion: '1.5.1', flags: 'baud:default' };
+  assert.strictEqual(Build.validateCacheEntry(good, want, 'deadbeef').ok, true);
+  const cases = [
+    [null, 'no-entry'],
+    [{}, 'schema-mismatch'],
+    [Object.assign({}, good, { schema: 1 }), 'schema-mismatch'],
+    [Object.assign({}, good, { fqbn: 'esp8266:esp8266:nodemcuv2' }), 'board-changed'],
+    [Object.assign({}, good, { codeHash: 'zzz' }), 'code-changed'],
+    [Object.assign({}, good, { coreVersion: '3.0.0' }), 'core-changed'],
+    [Object.assign({}, good, { cliVersion: '0.0.0' }), 'toolchain-changed'],
+    [Object.assign({}, good, { flags: 'baud:921600' }), 'flags-changed'],
+    [Object.assign({}, good, { status: 'failed' }), 'build-not-ok'],
+    [Object.assign({}, good, { binName: null }), 'no-binary'],
+  ];
+  cases.forEach(([entry, reason]) => {
+    const r = Build.validateCacheEntry(entry, want, 'deadbeef');
+    assert.strictEqual(r.ok, false, reason + ' must reject');
+    assert.strictEqual(r.reason, reason, 'reason is ' + reason);
+  });
+  assert.strictEqual(Build.validateCacheEntry(good, want, null).reason, 'binary-missing');
+  assert.strictEqual(Build.validateCacheEntry(good, want, 'other').reason, 'binary-corrupt');
+});
+test('compile/upload commands model build-path, input-dir, baud', () => {
+  const Build = require('../www/blocklyduino/js/robosiddhi_build.js');
+  const c = Build.compileCommand('esp32:esp32:esp32', '.\\tmp', { verbose: false, buildPath: '.\\b' });
+  assert.ok(c.includes('--build-path'), 'compile keeps --build-path');
+  const u = Build.uploadCommand('esp32:esp32:esp32', 'COM5', '.\\tmp', { inputDir: '.\\b', uploadSpeed: 921600 });
+  assert.ok(u.includes('--input-dir'), 'upload keeps --input-dir');
+  assert.ok(u.includes('upload.speed=921600'), 'baud override present');
+  assert.throws(() => Build.uploadCommand('esp32:esp32:esp32', 'COM5', '.\\tmp', { uploadSpeed: 'fast' }));
+  assert.throws(() => Build.compileCommand('none', '.\\tmp', false));
+});
+test('backend enforces cache file, mutex, monitor-close, timings', () => {
+  const fs = require('fs');
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  ['cache.json', 'validateCacheEntry', 'uploadBusy', 'closeMonitorPort()', 'compileMs', 'uploadMs', "'clean-build'", "'cache-status'", 'upload.speed', "'miss-forced'"].forEach(s => {
+    assert.ok(main.includes(s), 'main.js has ' + s);
+  });
+  const up = main.match(/handle\('rs-upload'([\s\S]*?)\r?\n\}\);\r?\n/);
+  assert.ok(up && up[1].indexOf('closeMonitorPort()') < up[1].indexOf("'upload'"), 'monitor closed before flashing');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

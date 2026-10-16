@@ -167,4 +167,3 @@ Blockly.LineCursor.prototype.validInLineNode_ = function(node) {
   }
   return isValid;
 };
-

@@ -71,13 +71,65 @@ function sketchHash() {
     } catch (e) { return null; }
 }
 function hashFilePath(fqbn) { return path.join(buildDirPath(fqbn), 'sketch.hash'); }
-function buildHasBin(fqbn) {
-    try {
-        const dir = buildDirPath(fqbn);
-        if (!fs.existsSync(dir)) return false;
-        return fs.readdirSync(dir).some(f => f.endsWith('.bin'));
-    } catch (e) { return false; }
+// ---- Persistent firmware cache (CACHE_SCHEMA 2, see robosiddhi_build.js) ----
+// cache.json lives next to the binaries in the per-board build dir and records
+// every input that affects the firmware: code hash, board, core + CLI versions,
+// build flags. A cached binary is flashed ONLY if all of them still match.
+function cacheMetaPath(fqbn) { return path.join(buildDirPath(fqbn), 'cache.json'); }
+function readCacheMeta(fqbn) {
+    try { return JSON.parse(fs.readFileSync(cacheMetaPath(fqbn), 'utf8')); } catch (e) { return null; }
 }
+function writeCacheMeta(fqbn, meta) {
+    try { fs.ensureDirSync(buildDirPath(fqbn)); fs.writeFileSync(cacheMetaPath(fqbn), JSON.stringify(meta, null, 1)); } catch (e) {}
+}
+function sha256File(file) {
+    try {
+        const crypto = require('crypto');
+        return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    } catch (e) { return null; }
+}
+// Main application binary in a --build-path dir: the "<sketch>.ino.bin"
+// (not merged/bootloader/partitions helpers). Used for the integrity hash.
+function findSketchBin(fqbn) {
+    try {
+        const files = fs.readdirSync(buildDirPath(fqbn)).filter((f) => f.endsWith('.ino.bin'));
+        const app = files.filter((f) => !/merged|bootloader|partitions/i.test(f));
+        const pick = app[0] || files[0];
+        return pick ? path.join(buildDirPath(fqbn), pick) : null;
+    } catch (e) { return null; }
+}
+let _cliVersion = null;
+function cliVersionOnce() {
+    if (_cliVersion) return Promise.resolve(_cliVersion);
+    return new Promise((resolve) => {
+        execFile(cliExePath(), ['version', '--format', 'json'], { timeout: 30000 }, (_e, stdout) => {
+            try { _cliVersion = JSON.parse(String(stdout || '')).Version || 'unknown'; }
+            catch (e2) { _cliVersion = 'unknown'; }
+            resolve(_cliVersion);
+        });
+    });
+}
+let _coreVersions = null;
+function coreVersionsOnce() {
+    if (_coreVersions) return Promise.resolve(_coreVersions);
+    return new Promise((resolve) => {
+        execFile(cliExePath(), ['core', 'list', '--format', 'json'], { timeout: 60000 }, (_e, stdout) => {
+            _coreVersions = {};
+            try {
+                const j = JSON.parse(String(stdout || ''));
+                (j.platforms || []).forEach((p) => { if (p && p.id) _coreVersions[p.id] = p.installed || 'unknown'; });
+            } catch (e2) {}
+            resolve(_coreVersions);
+        });
+    });
+}
+function coreVersionFor(fqbn) {
+    const core = (RoboSiddhiBuild && RoboSiddhiBuild.coreForFqbn(fqbn)) || null;
+    return coreVersionsOnce().then((m) => (core && m[core]) || 'unknown');
+}
+// One upload per serial port at a time — a second click while flashing is
+// rejected with a clear message instead of corrupting the transfer.
+const uploadBusy = new Set();
 const PORT_RE = /^(COM\d+|\/dev\/tty[A-Za-z0-9._-]+)$/;
 const CORE_RE = /^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+$/;
 const LIB_RE = /^[A-Za-z0-9 _+.\-@]+$/;
@@ -351,11 +403,31 @@ ipcMain.handle('rs-compile', async (_e, args) => {
     args = args || {};
     if (!validFqbn(args.fqbn)) throw new Error('Select an ESP board first.');
     fs.ensureDirSync(buildDirPath(args.fqbn));
+    if (args.force) { try { fs.emptyDirSync(buildDirPath(args.fqbn)); } catch (e) {} }
+    const t0 = Date.now();
     const cmd = ['compile', '-j', '0'];
     if (args.verbose) cmd.push('-v');
     cmd.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn), sketchDirPath());
     const r = await runCli(cmd);
-    if (r.ok) { try { fs.writeFileSync(hashFilePath(args.fqbn), sketchHash() || ''); } catch (e) {} }
+    const compileMs = Date.now() - t0;
+    if (r.ok) {
+        // Record a validated cache entry: binary exists + integrity hash stored.
+        // A failed build NEVER writes cache.json (stale-success impossible).
+        const codeHash = sketchHash();
+        const bin = findSketchBin(args.fqbn);
+        const binSha = bin ? sha256File(bin) : null;
+        try { fs.writeFileSync(hashFilePath(args.fqbn), codeHash || ''); } catch (e) {}
+        if (codeHash && bin && binSha) {
+            const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
+            writeCacheMeta(args.fqbn, {
+                schema: 2, fqbn: args.fqbn, codeHash: codeHash,
+                coreVersion: coreV, cliVersion: cliV, flags: '',
+                binName: path.basename(bin), binSha256: binSha,
+                builtAt: new Date().toISOString(), status: 'ok'
+            });
+        }
+    }
+    r.compileMs = compileMs; r.cache = r.ok ? 'miss-compiled' : 'miss-failed';
     return r;
 });
 
@@ -363,29 +435,82 @@ ipcMain.handle('rs-upload', async (_e, args) => {
     args = args || {};
     if (!validFqbn(args.fqbn)) throw new Error('Select an ESP board first.');
     if (typeof args.port !== 'string' || !PORT_RE.test(args.port)) throw new Error('Select a valid serial port first.');
-    fs.ensureDirSync(buildDirPath(args.fqbn));
-    // FAST PATH: same code + same board + binary exists -> skip 40s recompile,
-    // upload cached .bin directly (~upload time only). Hash guard keeps the
-    // old stale-flash bug fixed: any code change forces a fresh compile first.
-    const curHash = sketchHash();
-    let lastHash = null;
-    try { lastHash = fs.readFileSync(hashFilePath(args.fqbn), 'utf8'); } catch (e) {}
-    let c = null;
-    if (curHash && lastHash === curHash && buildHasBin(args.fqbn)) {
-        c = { ok: true, stdout: 'SKIPPED recompile (code unchanged) - flashing cached build.\n', stderr: '' };
-    } else {
-        const cargs = ['compile', '-j', '0'];
-        if (args.verbose) cargs.push('-v');
-        cargs.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn), sketchDirPath());
-        c = await runCli(cargs);
-        if (!c.ok) return { ok: false, stdout: c.stdout, stderr: 'COMPILE FAILED - nothing was uploaded. Fix the error above.\n' + c.stderr, phase: 'compile' };
-        try { fs.writeFileSync(hashFilePath(args.fqbn), curHash || ''); } catch (e) {}
+    if (uploadBusy.has(args.port)) throw new Error(args.port + ' is already flashing — wait for it to finish.');
+    let speed = null;
+    if (args.uploadSpeed !== undefined && args.uploadSpeed !== null && args.uploadSpeed !== '' && args.uploadSpeed !== 'default') {
+        speed = parseInt(args.uploadSpeed, 10);
+        if (!BAUDS.includes(speed)) throw new Error('Unsupported upload speed.');
     }
-    const uargs = ['upload', '-p', args.port];
-    if (args.verbose) uargs.push('-v');
-    uargs.push('-b', args.fqbn, '--input-dir', buildDirPath(args.fqbn), sketchDirPath());
-    const u = await runCli(uargs);
-    return { ok: u.ok, stdout: c.stdout + '\n' + u.stdout, stderr: u.stderr, phase: 'upload' };
+    const flags = 'baud:' + (speed || 'default');
+    uploadBusy.add(args.port);
+    try {
+        fs.ensureDirSync(buildDirPath(args.fqbn));
+        // The Serial Monitor owns this COM port — flashing while it is open
+        // always fails with "port busy", so close it first and say so.
+        const monWasOpen = !!(monPort && monPort.isOpen);
+        closeMonitorPort();
+        const monNote = monWasOpen ? 'Serial monitor closed for flashing.\n' : '';
+        const tAll = Date.now();
+        // FAST PATH: reuse the cached binary ONLY if every build input matches
+        // (code + board + core + toolchain + flags) and the binary verifies.
+        // Anything else → full compile. Forced rebuild skips the lookup.
+        const curHash = sketchHash();
+        let c = null, cacheState = 'miss-no-entry', compileMs = 0;
+        if (!args.force && curHash && RoboSiddhiBuild) {
+            const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
+            const bin = findSketchBin(args.fqbn);
+            const verdict = RoboSiddhiBuild.validateCacheEntry(
+                readCacheMeta(args.fqbn),
+                { fqbn: args.fqbn, codeHash: curHash, coreVersion: coreV, cliVersion: cliV, flags: flags },
+                bin ? sha256File(bin) : null);
+            cacheState = verdict.ok ? 'hit' : 'miss-' + verdict.reason;
+            if (verdict.ok) {
+                c = { ok: true, stdout: 'SKIPPED recompile (code unchanged) - flashing cached build.\n', stderr: '' };
+            }
+        } else if (args.force) { cacheState = 'miss-forced'; }
+        if (!c) {
+            const t0 = Date.now();
+            const cargs = ['compile', '-j', '0'];
+            if (args.verbose) cargs.push('-v');
+            cargs.push('-b', args.fqbn, '--build-path', buildDirPath(args.fqbn), sketchDirPath());
+            c = await runCli(cargs);
+            compileMs = Date.now() - t0;
+            if (!c.ok) {
+                c.phase = 'compile'; c.cache = 'miss-failed'; c.compileMs = compileMs;
+                c.stderr = 'COMPILE FAILED - nothing was uploaded. Fix the error above.\n' + c.stderr;
+                return c;
+            }
+            const codeHash = sketchHash();
+            const bin = findSketchBin(args.fqbn);
+            const binSha = bin ? sha256File(bin) : null;
+            try { fs.writeFileSync(hashFilePath(args.fqbn), codeHash || ''); } catch (e) {}
+            if (codeHash && bin && binSha) {
+                const [coreV, cliV] = await Promise.all([coreVersionFor(args.fqbn), cliVersionOnce()]);
+                writeCacheMeta(args.fqbn, {
+                    schema: 2, fqbn: args.fqbn, codeHash: codeHash,
+                    coreVersion: coreV, cliVersion: cliV, flags: flags,
+                    binName: path.basename(bin), binSha256: binSha,
+                    builtAt: new Date().toISOString(), status: 'ok'
+                });
+            }
+            cacheState = (cacheState === 'miss-forced') ? 'miss-forced' : 'miss-compiled';
+        }
+        const t1 = Date.now();
+        const uargs = ['upload', '-p', args.port];
+        if (args.verbose) uargs.push('-v');
+        uargs.push('-b', args.fqbn);
+        if (speed) uargs.push('--upload-property', 'upload.speed=' + speed);
+        uargs.push('--input-dir', buildDirPath(args.fqbn), sketchDirPath());
+        const u = await runCli(uargs);
+        const uploadMs = Date.now() - t1;
+        return {
+            ok: u.ok, stdout: monNote + c.stdout + '\n' + u.stdout, stderr: u.stderr,
+            phase: 'upload', cache: cacheState, compileMs: compileMs,
+            uploadMs: uploadMs, totalMs: Date.now() - tAll
+        };
+    } finally {
+        uploadBusy.delete(args.port);
+    }
 });
 
 ipcMain.handle('rs-cli', async (_e, req) => {
@@ -393,6 +518,44 @@ ipcMain.handle('rs-cli', async (_e, req) => {
     if (req.op === 'update-index') return runCli(['core', 'update-index'], 180000);
     if (req.op === 'board-list') return runCli(['board', 'list'], 60000);
     if (req.op === 'clean-cache') { fs.emptyDirSync(repoTmpPath()); fs.ensureDirSync(sketchDirPath()); return { ok: true, stdout: 'cache cleaned', stderr: '' }; }
+    if (req.op === 'clean-build') {
+        // Wipe the whole persistent build root (forces a true cold rebuild next time).
+        let freed = 0, n = 0;
+        try {
+            const root = DEV_MODE ? path.join(__dirname, 'compiler', 'build') : path.join(app.getPath('userData'), 'build');
+            if (fs.existsSync(root)) {
+                fs.readdirSync(root).forEach((d) => {
+                    const p = path.join(root, d);
+                    try {
+                        fs.readdirSync(p).forEach((f) => { try { freed += fs.statSync(path.join(p, f)).size; } catch (e) {} });
+                        n++;
+                    } catch (e) {}
+                });
+                fs.emptyDirSync(root);
+            }
+        } catch (e) {}
+        fs.emptyDirSync(repoTmpPath()); fs.ensureDirSync(sketchDirPath());
+        return { ok: true, stdout: 'Build cache cleared (' + n + ' board dirs, ~' + Math.round(freed / 1024) + ' KB binaries dropped). Next upload will fully recompile.', stderr: '' };
+    }
+    if (req.op === 'cache-status') {
+        const lines = [];
+        try {
+            const root = DEV_MODE ? path.join(__dirname, 'compiler', 'build') : path.join(app.getPath('userData'), 'build');
+            if (fs.existsSync(root)) {
+                fs.readdirSync(root).forEach((d) => {
+                    const mp = path.join(root, d, 'cache.json');
+                    if (!fs.existsSync(mp)) return;
+                    try {
+                        const m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+                        const bp = path.join(root, d, m.binName || '');
+                        const mb = fs.existsSync(bp) ? Math.round(fs.statSync(bp).size / 1024) + ' KB' : 'binary gone';
+                        lines.push(d + ' | code ' + String(m.codeHash || '?').slice(0, 8) + ' | core ' + (m.coreVersion || '?') + ' | ' + mb + ' | ' + (m.builtAt || '?'));
+                    } catch (e) {}
+                });
+            }
+        } catch (e) {}
+        return { ok: true, stdout: lines.length ? lines.join('\n') : 'Build cache is empty — no compiled firmware stored yet.', stderr: '' };
+    }
     if (req.op === 'core-install' && typeof req.arg === 'string' && CORE_RE.test(req.arg.trim())) {
         return runCli(['core', 'install', req.arg.trim()], 600000);
     }

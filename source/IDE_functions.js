@@ -148,6 +148,32 @@ function RoboSiddhiCheckBoard() {
 function RoboSiddhiVerbose() {
     try { return document.getElementById('detailedCompilation').checked === true; } catch (e) { return false; }
 }
+function RoboSiddhiForce() {
+    try { return document.getElementById('forceRebuild').checked === true; } catch (e) { return false; }
+}
+function RoboSiddhiSpeed() {
+    try {
+        var v = document.getElementById('uploadSpeedMenu').value;
+        if (!v || v === 'default') return undefined;
+        return parseInt(v, 10);
+    } catch (e) { return undefined; }
+}
+function RoboSiddhiSecs(ms) {
+    if (ms === undefined || ms === null) return '?';
+    return (ms / 1000).toFixed(1) + 's';
+}
+function RoboSiddhiPerfLine(res, kind) {
+    var parts = [];
+    if (res.cache) parts.push('cache ' + String(res.cache).toUpperCase());
+    if (kind === 'upload') {
+        parts.push('compile ' + RoboSiddhiSecs(res.compileMs));
+        parts.push('flash ' + RoboSiddhiSecs(res.uploadMs));
+        parts.push('total ' + RoboSiddhiSecs(res.totalMs));
+    } else {
+        parts.push('compile ' + RoboSiddhiSecs(res.compileMs));
+    }
+    return '<br>⏱ ' + parts.join(' | ');
+}
 
 window.addEventListener('load', function load() {
     document.getElementById('verifyButton').onclick = function () {
@@ -157,10 +183,10 @@ window.addEventListener('load', function load() {
         var fqbn = profile.default['upload_arg'];
         RoboSiddhiShow(MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + '<br>' + MSG['IDE_verif_progress'], '#FFFFFF');
         window.RoboSiddhi.writeSketch(data).then(function () {
-            return window.RoboSiddhi.compile({ fqbn: fqbn, verbose: RoboSiddhiVerbose() });
+            return window.RoboSiddhi.compile({ fqbn: fqbn, verbose: RoboSiddhiVerbose(), force: RoboSiddhiForce() });
         }).then(function (res) {
-            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_verif_ok'], '#00FF00');
-            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)), '#FF0000');
+            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_verif_ok'] + RoboSiddhiPerfLine(res, 'verify'), '#00FF00');
+            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)) + RoboSiddhiPerfLine(res, 'verify'), '#FF0000');
         }).catch(function (err) {
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
         });
@@ -177,10 +203,10 @@ window.addEventListener('load', function load() {
         var fqbn = profile.default['upload_arg'];
         RoboSiddhiShow(MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai — RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
         window.RoboSiddhi.writeSketch(data).then(function () {
-            return window.RoboSiddhi.upload({ fqbn: fqbn, port: comPortSelected, verbose: RoboSiddhiVerbose() });
+            return window.RoboSiddhi.upload({ fqbn: fqbn, port: comPortSelected, verbose: RoboSiddhiVerbose(), force: RoboSiddhiForce(), uploadSpeed: RoboSiddhiSpeed() });
         }).then(function (res) {
-            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_upload_ok'] + '<br><b>ABB RST DABAO (ek baar) YA USB cable nikalo-lagao — tabhi naya program chalega.</b>', '#00FF00');
-            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)), '#FF0000');
+            if (res.ok) RoboSiddhiShow(RoboSiddhiEsc(res.stdout) + '<br>' + MSG['IDE_upload_ok'] + '<br><b>ABB RST DABAO (ek baar) YA USB cable nikalo-lagao — tabhi naya program chalega.</b>' + RoboSiddhiPerfLine(res, 'upload'), '#00FF00');
+            else RoboSiddhiShow(RoboSiddhiEsc(RoboSiddhiDiagnose(res.stderr, fqbn)) + RoboSiddhiPerfLine(res, 'upload'), '#FF0000');
         }).catch(function (err) {
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
         });
