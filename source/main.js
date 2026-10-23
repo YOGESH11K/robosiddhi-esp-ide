@@ -589,7 +589,7 @@ function rtWithPort(port, fn, cmdTimeoutMs) {
                     .then(() => fn(send))
                     .then((v) => { clearTimeout(timerFail); done(null, v); })
                     .catch((e) => { clearTimeout(timerFail); done(e); });
-            }, 250);
+            }, 500);
         });
     });
 }

@@ -248,7 +248,7 @@ window.addEventListener('load', function load() {
         if (canRuntime) {
             // Unknown board state: quick 1.5s probe, then instant or Arduino.
             RoboSiddhiShow('Board check ho raha hai (runtime?)...', '#FFFFFF');
-            window.RoboSiddhi.runtime({ op: 'detect', port: comPortSelected, timeoutMs: 3000 }).then(function () {
+            window.RoboSiddhi.runtime({ op: 'detect', port: comPortSelected, timeoutMs: 5000 }).then(function () {
                 RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
                     RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
                 });
