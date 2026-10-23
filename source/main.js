@@ -630,7 +630,7 @@ ipcMain.handle('rs-runtime', async (_e, req) => {
         const ops = req.ops, pins = req.pins || [];
         if (!Array.isArray(ops) || !ops.length || ops.length > 128) throw new Error('Bad program (1..128 ops).');
         for (const o of ops) {
-            if (!o || typeof o.op !== 'number' || o.op < 1 || o.op > 10) throw new Error('Bad program opcode.');
+            if (!o || typeof o.op !== 'number' || o.op < 1 || o.op > 12) throw new Error('Bad program opcode.');
             for (const k of ['a', 'b', 'c']) if (typeof o[k] !== 'number' || !isFinite(o[k])) throw new Error('Bad program args.');
         }
         const log = await rtWithPort(req.port, async (send) => {
