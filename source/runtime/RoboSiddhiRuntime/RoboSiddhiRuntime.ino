@@ -68,6 +68,15 @@ static void rsServoEnsure(int pin) {
 // driver callbacks for the interpreter
 static int cbReadD(int p) { return digitalRead(p); }
 static int cbReadA(int p) { return analogRead(p); }
+static int rsUltrasonicRead(int trig, int echo) {
+  if (!rsPinOk(trig) || !rsPinOk(echo)) return -1;
+  digitalWrite(trig, LOW); delayMicroseconds(2);
+  digitalWrite(trig, HIGH); delayMicroseconds(10); digitalWrite(trig, LOW);
+  unsigned long us = pulseIn(echo, HIGH, 30000);
+  if (us == 0) return -1;
+  return (int)(us / 58);
+}
+static int cbReadU(int trig, int echo) { return rsUltrasonicRead(trig, echo); }
 static void cbWriteD(int p, int v) { digitalWrite(p, v ? HIGH : LOW); }
 static void cbWritePWM(int p, int d) { analogWrite(p, d); }
 static void cbServo(int p, int a) { rsServoEnsure(p); int i = rsServoIdx(p); if (i >= 0) rsServos[i].write(a); }
@@ -140,13 +149,9 @@ static void rsHandle(const Frame &f) {
   }
   if (!strcmp(f.cmd, "UREAD")) {
     if (f.argc < 2 || !rsPinOk(p0) || !rsPinOk(p1)) { replyErr(f.seq, "BAD_ARGS"); return; }
-    long tmo = (f.argc > 2) ? p2 : 30000;
-    if (tmo < 1000 || tmo > 100000) { replyErr(f.seq, "BAD_ARGS"); return; }
-    digitalWrite(p0, LOW); delayMicroseconds(2);
-    digitalWrite(p0, HIGH); delayMicroseconds(10); digitalWrite(p0, LOW);
-    unsigned long us = pulseIn(p1, HIGH, (unsigned long)tmo);
-    if (us == 0) { replyErr(f.seq, "TIMEOUT"); return; }
-    snprintf(out, sizeof(out), "%d", (int)(us / 58)); replyOk(f.seq, out); return;
+    int d = rsUltrasonicRead((int)p0, (int)p1);
+    if (d < 0) { replyErr(f.seq, "TIMEOUT"); return; }
+    snprintf(out, sizeof(out), "%d", d); replyOk(f.seq, out); return;
   }
   if (!strcmp(f.cmd, "DHTREAD")) {
     if (f.argc != 2 || !rsPinOk(p0) || (p1 != 11 && p1 != 22)) { replyErr(f.seq, "BAD_ARGS"); return; }
@@ -269,7 +274,7 @@ static void rsHandle(const Frame &f) {
 void setup() {
   Serial.begin(115200);
   for (int i = 0; i < RS_MAX_SERVOS; i++) rsServoPin[i] = -1;
-  rsExec.readD = cbReadD; rsExec.readA = cbReadA;
+  rsExec.readD = cbReadD; rsExec.readA = cbReadA; rsExec.readU = cbReadU;
   rsExec.writeD = cbWriteD; rsExec.writePWM = cbWritePWM;
   rsExec.servoAngle = cbServo; rsExec.buzz = cbBuzz;
   delay(300);

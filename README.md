@@ -24,6 +24,24 @@ https://github.com/YOGESH11K/robosiddhi-esp-ide/releases/tag/v1.0.0
    type `esp32:esp32` (or `esp8266:esp8266`) in install-board box -> download icon.
 4. If a library is missing (.h error): same panel -> install-lib box.
 
+## Screenshots
+
+Current IDE (exe) and example block programs:
+
+![Robosiddhi ESP IDE](docs/screenshots/exe.png)
+
+**Servo example**
+
+![Servo example](docs/screenshots/servo.png)
+
+**LED example**
+
+![LED example](docs/screenshots/led.png)
+
+**Ultrasonic example**
+
+![Ultrasonic example](docs/screenshots/ultrasonic.png)
+
 ## Use
 
 Load XML (menu -> Load) or drag blocks -> Upload -> green success ->

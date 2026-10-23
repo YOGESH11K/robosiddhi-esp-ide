@@ -59,11 +59,14 @@ NO_PROG CRC_FAIL UNKNOWN_CMD`.
 `1 DWRITE pin val` · `2 PWM pin duty` · `3 SANGLE pin deg` · `4 BUZZ pin freq ms` ·
 `5 WAIT ms` · `6 IFD pin val target` (jump if equal) · `7 IFA_LT pin thresh target`
 (jump if less) · `8 JMP target` · `9 LOOP count target` (1..1000, counted) ·
-`10 END`. Max 128 ops. Backward `JMP` restarts the step budget (WHILE/run-forever);
-everything else is bounded (20 000 steps, then auto-stop, never a hang).
+`10 END` · `11 UREAD trig echo` (measure distance, store last) ·
+`12 IFU_LT thresh target` (jump if last distance >=0 and < thresh). Max 128 ops.
+Backward `JMP` restarts the step budget (WHILE/run-forever); everything else is
+bounded (20 000 steps, then auto-stop, never a hang).
 
 ## Explicit v1 limits (not supported → use Arduino compile-and-flash)
 
-Variables, DHT/DS18B20/ultrasonic-driven branches (poll them live from the IDE
-instead), `UNTIL` loops, WiFi/MQTT, MPU6050, motor-driver profiles (drive L298N via
-GPIO+PWM ops), analog `=` in branches.
+Variables, DHT/DS18B20-driven branches (poll them live from the IDE instead),
+`UNTIL` loops, WiFi/MQTT, MPU6050, motor-driver profiles (drive L298N via
+GPIO+PWM ops), analog `=` in branches. Ultrasonic-driven branches are supported
+via UREAD + IFU_LT.

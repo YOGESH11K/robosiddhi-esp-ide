@@ -22,7 +22,9 @@ enum Op : uint8_t {
   OP_IFA_LT = 7,   // a=pin b=thresh c=jump target (if analogRead<thresh)
   OP_JMP = 8,      // a=jump target
   OP_LOOP = 9,     // a=count(1-1000) b=jump-back target (counted loop)
-  OP_END = 10
+  OP_END = 10,
+  OP_UREAD = 11,   // a=trigPin b=echoPin  (stores last ultrasonic distance in cm, or 10000 on timeout)
+  OP_IFU_LT = 12   // a=thresh b=0 c=jump target (if lastUltrasonic>=0 && <thresh)
 };
 
 struct OpLine { uint8_t op; int16_t a; int16_t b; int16_t c; };
@@ -41,7 +43,7 @@ static const char *validate(const OpLine *ops, uint8_t len) {
   if (len == 0 || len > RS_PROG_MAX_OPS) return "BAD_LEN";
   for (uint8_t i = 0; i < len; i++) {
     uint8_t o = ops[i].op;
-    if (o < OP_DWRITE || o > OP_END) return "BAD_OPCODE";
+    if (o < OP_DWRITE || o > OP_IFU_LT) return "BAD_OPCODE";
     if (o == OP_END && i != len - 1) return "END_NOT_LAST";
   }
   uint8_t last = ops[len - 1].op;
@@ -57,6 +59,7 @@ static const char *validate(const OpLine *ops, uint8_t len) {
       case OP_WAIT: if (a < 0 || a > 60000) return "BAD_VAL"; break;
       case OP_IFD: if ((b != 0 && b != 1) || c < 0 || c >= len) return "BAD_JUMP"; break;
       case OP_IFA_LT: if (c < 0 || c >= len) return "BAD_JUMP"; break;
+      case OP_IFU_LT: if (c < 0 || c >= len) return "BAD_JUMP"; break;
       case OP_JMP: if (a < 0 || a >= len) return "BAD_JUMP"; break;
       case OP_LOOP: if (a < 1 || a > RS_LOOP_MAX_ITER || b < 0 || b >= len || b >= i) return "BAD_LOOP"; break;
       default: break;
@@ -73,11 +76,13 @@ struct Executor {
   uint32_t steps = 0;
   uint32_t waitUntil = 0;
   int16_t loopLeft[RS_PROG_MAX_OPS] = {0};
+  int16_t lastU = 10000;
   const char *stopReason = nullptr;
 
   void load(const Program &p) {
     active = p;
     pc = 0; steps = 0; waitUntil = 0; running = true; stopReason = nullptr;
+    lastU = 10000;
     memset(loopLeft, 0, sizeof(loopLeft));
   }
   void stop(const char *why) { running = false; stopReason = why; }
@@ -85,6 +90,7 @@ struct Executor {
   // Driver callbacks (set by .ino): return sensor ints, perform outputs.
   int (*readD)(int pin) = nullptr;
   int (*readA)(int pin) = nullptr;
+  int (*readU)(int trig, int echo) = nullptr;
   void (*writeD)(int pin, int v) = nullptr;
   void (*writePWM)(int pin, int duty) = nullptr;
   void (*servoAngle)(int pin, int deg) = nullptr;
@@ -116,6 +122,8 @@ struct Executor {
           else { loopLeft[pc] = 0; pc++; }
           break;
         }
+        case OP_UREAD: if (readU) lastU = (int16_t)readU(o.a, o.b); if (lastU < 0) lastU = 10000; pc++; break;
+        case OP_IFU_LT: pc = (lastU >= 0 && lastU < o.a) ? (uint8_t)o.c : pc + 1; break;
         case OP_END: stop("END"); return false;
         default: stop("BAD_OPCODE"); return false;
       }

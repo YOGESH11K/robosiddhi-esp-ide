@@ -620,6 +620,26 @@ test('block compiler emits correct ops and jumps', () => {
   assert.strictEqual(R.compileBlocks([badRep]).ok, false);
 });
 
+test('ultrasonic condition drives servo in runtime mode', () => {
+  const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
+  const cond = R.B('logic_compare', { OP: 'LT' }, {
+    A: R.B('robosiddhi_hcsr04', { PIN_TRIG: '5', PIN_ECHO: '18' }),
+    B: R.B('math_number', { NUM: '15' })
+  });
+  const ib = R.B('controls_if', {}, {
+    IF0: cond,
+    DO0: R.B('servo_move', { PIN: '4' }, { DEGREE: R.B('math_number', { NUM: '90' }) }),
+    ELSE: R.B('servo_move', { PIN: '4' }, { DEGREE: R.B('math_number', { NUM: '0' }) })
+  });
+  const r = R.compileBlocks([ib]);
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+  // UREAD, IFU_LT(threshold=15 -> body), SANGLE(90), JMP(end), IFU_LT(16 -> body2), SANGLE(0), END
+  assert.ok(r.ops.some(o => o.op === R.OP.UREAD), 'has UREAD');
+  assert.ok(r.ops.some(o => o.op === R.OP.IFU_LT), 'has IFU_LT');
+  assert.ok(r.ops.some(o => o.op === R.OP.SANGLE && o.b === 90), 'servo 90');
+  assert.ok(r.ops.some(o => o.op === R.OP.SANGLE && o.b === 0), 'servo 0');
+});
+
 test('loop-forever programs end with backward JMP', () => {
   const R = require('../www/blocklyduino/js/robosiddhi_runtime.js');
   const ON = R.B('robosiddhi_led_set', { PIN: '2', STATE: 'ON' });

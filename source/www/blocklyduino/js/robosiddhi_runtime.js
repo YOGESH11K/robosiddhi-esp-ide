@@ -20,7 +20,9 @@
   var MAX_OPS = 128;
 
   // Opcodes mirror RSProgram.h — MUST stay in sync with firmware.
-  var OP = { DWRITE: 1, PWM: 2, SANGLE: 3, BUZZ: 4, WAIT: 5, IFD: 6, IFA_LT: 7, JMP: 8, LOOP: 9, END: 10 };
+  var OP = { DWRITE: 1, PWM: 2, SANGLE: 3, BUZZ: 4, WAIT: 5, IFD: 6, IFA_LT: 7, JMP: 8, LOOP: 9, END: 10, UREAD: 11, IFU_LT: 12 };
+// Aliases for compatibility with alternate naming.
+OP.ULTRASONIC_READ = OP.UREAD; OP.IFU = OP.IFU_LT; OP.IF_ULTRASONIC_LT = OP.IFU_LT;
 
   function crc16(str) {
     var crc = 0xFFFF;
@@ -199,6 +201,13 @@
       if (['EQ', 'LT', 'GT'].indexOf(cmp) === -1) { this.errors.push('analog conditions support =, <, >'); return null; }
       return { kind: 'A', pin: pa, cmp: cmp, val: val };
     }
+    if (A && A.type === 'robosiddhi_hcsr04') {
+      var tr = Number(A.getFieldValue('PIN_TRIG'));
+      var ec = Number(A.getFieldValue('PIN_ECHO'));
+      if (!isFinite(tr) || !isFinite(ec)) { this.errors.push('ultrasonic needs TRIG + ECHO pins'); return null; }
+      if (['EQ', 'LT', 'GT'].indexOf(cmp) === -1) { this.errors.push('ultrasonic conditions support =, <, >'); return null; }
+      return { kind: 'U', trig: tr, echo: ec, cmp: cmp, val: val };
+    }
     this.errors.push('this sensor cannot drive a runtime-mode branch (poll it live instead) — or use Arduino mode');
     return null;
   };
@@ -210,6 +219,24 @@
       // FALSE means pin != val, i.e. pin == (1-val): single IFD.
       ends.push(this.emit(OP.IFD, cond.pin, cond.val ? 0 : 1, 0));
       bodyAt = this.ops.length;
+      return { bodyAt: bodyAt, endPatches: ends };
+    }
+    if (cond.kind === 'U') {
+      // read distance into firmware's lastUltrasonic, then branch like analog.
+      this.emit(OP.UREAD, cond.trig, cond.echo);
+      if (cond.cmp === 'LT' || cond.cmp === 'GT') {
+        var thU = cond.cmp === 'LT' ? cond.val : cond.val + 1;
+        var toBodyU = this.emit(OP.IFU_LT, thU, 0, 0);
+        ends.push(this.emit(OP.JMP, 0));
+        bodyAt = this.ops.length;
+        this.ops[toBodyU].c = bodyAt;
+        return { bodyAt: bodyAt, endPatches: ends };
+      }
+      var toEndU = this.emit(OP.IFU_LT, cond.val, 0, 0);
+      var toBodyU2 = this.emit(OP.IFU_LT, cond.val + 1, 0, 0);
+      ends.push(toEndU, this.emit(OP.JMP, 0));
+      bodyAt = this.ops.length;
+      this.ops[toBodyU2].c = bodyAt;
       return { bodyAt: bodyAt, endPatches: ends };
     }
     // A: only IFA_LT exists. Patterns (t integer):
