@@ -233,9 +233,12 @@ window.addEventListener('load', function load() {
         var fqbn = profile.default['upload_arg'];
         var prog = RoboSiddhiRuntimeCompile();
         var canRuntime = !!(prog && prog.ok !== false);
-        if (canRuntime && RuntimeMarked(comPortSelected)) {
+        var marked = false;
+        try { marked = (window.localStorage.getItem('rs-runtime-ok:' + comPortSelected) === '1'); } catch (e) {}
+        if (canRuntime && marked) {
             // Steady state: board known to run the runtime — straight to transfer (~1s).
-            RoboSiddhiShow('⚡ Runtime board pe bhej rahe hain (' + prog.ops.length + ' ops)...', '#FFFFFF');
+            RoboSiddhiShow('⚡ Runtime check: canRuntime=' + canRuntime + ', marked=' + marked + '<br>' +
+            '? Runtime board pe bhej rahe hain (' + prog.ops.length + ' ops)...', '#FFFFFF');
             RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
                 RuntimeMark(comPortSelected, false);
                 RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err) + '<br><br>Runtime jawab nahi de raha — Arduino mode se flash kar raha hoon...', '#FF9900');
@@ -252,11 +255,8 @@ window.addEventListener('load', function load() {
                 RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
                     RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
                 });
-            }).catch(function () {
-                RoboSiddhiShow('Runtime nahi mila — Arduino mode se flash ho raha hai.<br>' + MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai — RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
-                ArduinoUploadFlow(data, fqbn, comPortSelected).catch(function (err) {
-                    RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
-                });
+            }).catch(function (err) {
+                RoboSiddhiShow('Runtime firmware detect nahi hua: ' + RoboSiddhiEsc((err && err.message) || err) + '<br><br><b>Install Firmware (bolt) dobara dabao.</b> (Arduino mode se overwrite nahi kar raha - firmware bachega.)', '#FF0000');
             });
             return;
         }
