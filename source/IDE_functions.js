@@ -248,7 +248,7 @@ window.addEventListener('load', function load() {
         if (canRuntime) {
             // Unknown board state: quick 1.5s probe, then instant or Arduino.
             RoboSiddhiShow('Board check ho raha hai (runtime?)...', '#FFFFFF');
-            window.RoboSiddhi.runtime({ op: 'detect', port: comPortSelected, timeoutMs: 1500 }).then(function () {
+            window.RoboSiddhi.runtime({ op: 'detect', port: comPortSelected, timeoutMs: 3000 }).then(function () {
                 RuntimeTransferFlow(prog, comPortSelected).catch(function (err) {
                     RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
                 });
@@ -261,7 +261,9 @@ window.addEventListener('load', function load() {
             return;
         }
         // Blocks need Arduino mode (compiler said so).
-        RoboSiddhiShow(MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai — RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
+        var _errs = (prog && prog.errors) ? prog.errors.join('<br>') : '';
+        if (_errs) RoboSiddhiShow('<b>Runtime mode me nahi chalega (slow upload hoga):</b><br>' + RoboSiddhiEsc(_errs) + '<br><br>Arduino mode se flash ho raha hai...', '#FF9900');
+        RoboSiddhiShow(MSG['IDE_upload1'] + RoboSiddhiEsc(profile.default['description']) + MSG['IDE_upload2'] + RoboSiddhiEsc(comPortSelected) + '<br>' + MSG['IDE_upload3'] + '<br><b>Upload ho raha hai - RST MAT dabao, USB mat nikalo.</b>', '#FFFFFF');
         ArduinoUploadFlow(data, fqbn, comPortSelected).catch(function (err) {
             RoboSiddhiShow(RoboSiddhiEsc((err && err.message) || err), '#FF0000');
         });
