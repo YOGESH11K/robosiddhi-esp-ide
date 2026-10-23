@@ -328,6 +328,10 @@ window.addEventListener('load', function load() {
                 if (tops[i].type === 'base_setup_loop') {
                     setupChain = tops[i].getInputTargetBlock('SETUP');
                     loopChain = tops[i].getInputTargetBlock('LOOP');
+                } else if (tops[i].type === 'base_setup') {
+                    setupChain = tops[i].getInputTargetBlock('SETUP');
+                } else if (tops[i].type === 'base_loop') {
+                    loopChain = tops[i].getInputTargetBlock('LOOP');
                 } else plain.push(tops[i]);
             }
         } catch (e) {
